@@ -51,8 +51,8 @@ sudo pacman -S stow hyprland kitty rofi starship tmux cava
 
 ```bash
 cd ~/Documents
-git clone https://github.com/pmacoutinho/dotfiles.git
-cd dotfiles
+git clone https://github.com/pmacoutinho/Arch-Hyprland-Dotfiles.git
+cd Arch-Hyprland-Dotfiles
 
 # Stow everything
 stow bash hypr hyprpanel kitty rofi cava starship scripts tmux
