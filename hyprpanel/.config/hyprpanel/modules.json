@@ -1,0 +1,56 @@
+{
+  "custom/vpn-proton": {
+    "icon": {
+      "connected": "\uf023",
+      "default": "\uf023"
+    },
+    "label": "ProtonVPN",
+    "tooltip": "ProtonVPN: Connected",
+    "truncationSize": -1,
+    "execute": "bash -c 'if nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q vpn; then echo \"{\\\"alt\\\": \\\"connected\\\"}\"; fi'",
+    "executeOnAction": "",
+    "interval": 5000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "~/.scripts/vpn-proton-disconnect.sh",
+      "onRightClick": "menu:network"
+    }
+  },
+  "custom/vpn-it": {
+    "icon": {
+      "connected": "\uf023",
+      "default": "\uf023"
+    },
+    "label": "Custom VPN",
+    "tooltip": "Custom VPN: Connected",
+    "truncationSize": -1,
+    "execute": "bash -c 'if openvpn3 sessions-list 2>/dev/null | grep -q \"Client connected\"; then echo \"{\\\"alt\\\": \\\"connected\\\"}\"; fi'",
+    "executeOnAction": "",
+    "interval": 5000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "bash -c '~/.scripts/vpn-custom-toggle.sh'",
+      "onRightClick": "menu:network"
+    }
+  },
+  "custom/vpn-off": {
+    "icon": {
+      "disconnected": "\uf09c",
+      "default": "\uf09c"
+    },
+    "label": "VPN",
+    "tooltip": "VPN: Disconnected",
+    "truncationSize": -1,
+    "execute": "bash -c 'if ! nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q vpn && ! openvpn3 sessions-list 2>/dev/null | grep -q \"Client connected\"; then echo \"{\\\"alt\\\": \\\"disconnected\\\"}\"; fi'",
+    "executeOnAction": "",
+    "interval": 5000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "~/.scripts/vpn-proton-connect.sh",
+      "onRightClick": "menu:network"
+    }
+  }
+}

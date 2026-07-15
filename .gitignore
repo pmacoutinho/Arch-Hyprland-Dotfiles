@@ -1,0 +1,4 @@
+*.bak
+*.backup
+*.vpn_backup.json
+*.scssz

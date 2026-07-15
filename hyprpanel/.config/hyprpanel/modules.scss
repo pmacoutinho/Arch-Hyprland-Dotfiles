@@ -1,0 +1,59 @@
+@include styleModule(
+  'cmodule-vpn-proton',
+  (
+    'text-color': #a6e3a1,
+    'icon-color': #a6e3a1,
+    'border-enabled': true,
+    'border-color': #a6e3a1,
+  )
+);
+
+@include styleModule(
+  'cmodule-vpn-it',
+  (
+    'text-color': #b4befe,
+    'icon-color': #b4befe,
+    'border-enabled': true,
+    'border-color': #b4befe,
+  )
+);
+
+@include styleModule(
+  'cmodule-vpn-off',
+  (
+    'text-color': #f38ba8,
+    'icon-color': #f38ba8,
+    'border-enabled': true,
+    'border-color': #f38ba8,
+  )
+);
+
+.bar_item_box_visible {
+  &.cmodule-vpn-proton,
+  &.cmodule-vpn-it,
+  &.cmodule-vpn-off {
+    transition: opacity 1000ms ease-in-out;
+  }
+
+  &.cmodule-vpn-proton:hover {
+    box-shadow: 0 0 8px 2px rgba(166, 227, 161, 0.5);
+  }
+  &.cmodule-vpn-proton:active {
+    box-shadow: 0 0 12px 4px rgba(166, 227, 161, 0.8);
+    opacity: 0.7;
+  }
+  &.cmodule-vpn-it:hover {
+    box-shadow: 0 0 8px 2px rgba(180, 190, 254, 0.5);
+  }
+  &.cmodule-vpn-it:active {
+    box-shadow: 0 0 12px 4px rgba(180, 190, 254, 0.8);
+    opacity: 0.7;
+  }
+  &.cmodule-vpn-off:hover {
+    box-shadow: 0 0 8px 2px rgba(243, 139, 168, 0.5);
+  }
+  &.cmodule-vpn-off:active {
+    box-shadow: 0 0 12px 4px rgba(243, 139, 168, 0.8);
+    opacity: 0.7;
+  }
+}
