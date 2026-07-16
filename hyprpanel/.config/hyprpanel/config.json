@@ -5,28 +5,33 @@
   "bar.windowtitle.title_map": [
     [
       "stremio",
-      "\uf144",
+      "",
       "Stremio"
     ],
     [
       "codium",
-      "\uf372",
+      "",
       "VSCodium"
     ],
     [
       "proton.vpn.app.gtk",
-      "\udb81\udd82",
+      "󰖂",
       "ProtonVPN"
     ],
     [
       "beeper",
-      "\udb82\udf79",
+      "󰭹",
       "Beeper"
     ],
     [
       "ente",
-      "\uf03e",
+      "",
       "Ente"
+    ],
+    [
+      "filezilla",
+      "",
+      "FileZilla"
     ]
   ],
   "theme.font.size": ".9rem",
@@ -43,10 +48,10 @@
   "theme.osd.location": "right",
   "theme.bar.transparent": false,
   "theme.bar.opacity": 90,
-  "menus.dashboard.shortcuts.left.shortcut1.icon": "\udb80\ude39",
+  "menus.dashboard.shortcuts.left.shortcut1.icon": "󰈹",
   "menus.dashboard.shortcuts.left.shortcut1.command": "firefox",
   "menus.dashboard.shortcuts.left.shortcut1.tooltip": "Firefox",
-  "menus.dashboard.shortcuts.left.shortcut4.icon": "\udb86\ude4c",
+  "menus.dashboard.shortcuts.left.shortcut4.icon": "󱩌",
   "menus.dashboard.shortcuts.left.shortcut4.tooltip": "Night Mode",
   "menus.dashboard.shortcuts.left.shortcut4.command": "sh ~/.scripts/toggleHyprsunset.sh",
   "menus.power.lowBatteryNotification": true,
@@ -81,31 +86,32 @@
   "bar.workspaces.showWsIcons": true,
   "bar.workspaces.showApplicationIcons": true,
   "bar.clock.format": "%a %d %b  %H:%M:%S",
-  "bar.workspaces.icons.active": "\uf111",
+  "bar.workspaces.icons.active": "",
   "theme.bar.buttons.workspaces.smartHighlight": true,
   "bar.workspaces.numbered_active_indicator": "highlight",
-  "bar.workspaces.applicationIconEmptyWorkspace": "\uf10c",
-  "menus.dashboard.directories.left.directory1.label": "\udb80\ude4d   Downloads",
-  "menus.dashboard.directories.left.directory2.label": "\udb80\ude4f   Videos",
-  "menus.dashboard.directories.left.directory3.label": "\udb81\ude9d   Desktop",
-  "menus.dashboard.directories.right.directory1.label": "\udb86\uddf6   Documents",
-  "menus.dashboard.directories.right.directory2.label": "\udb80\ude4f   Pictures",
-  "menus.dashboard.directories.right.directory3.label": "\udb84\udcb5   Home",
+  "bar.workspaces.applicationIconEmptyWorkspace": "",
+  "menus.dashboard.directories.left.directory1.label": "󰉍   Downloads",
+  "menus.dashboard.directories.left.directory2.label": "󰉏   Videos",
+  "menus.dashboard.directories.left.directory3.label": "󰚝   Desktop",
+  "menus.dashboard.directories.right.directory1.label": "󱧶   Documents",
+  "menus.dashboard.directories.right.directory2.label": "󰉏   Pictures",
+  "menus.dashboard.directories.right.directory3.label": "󱂵   Home",
   "menus.dashboard.directories.left.directory3.command": "bash -c \"xdg-open $HOME/Desktop/\"",
-  "menus.dashboard.shortcuts.left.shortcut3.icon": "\udb80\udf0c",
+  "menus.dashboard.shortcuts.left.shortcut3.icon": "󰌌",
   "menus.dashboard.shortcuts.left.shortcut3.command": "sh ~/.scripts/onScreenKeyboard.sh",
   "menus.dashboard.shortcuts.left.shortcut3.tooltip": "On Screen Keyboard",
-  "menus.dashboard.powermenu.avatar.name": "\u30da\u30c9\u30ed",
+  "menus.dashboard.powermenu.avatar.name": "ペドロ",
   "menus.dashboard.stats.enable_gpu": true,
   "wallpaper.enable": false,
   "bar.customModules.storage.paths": [
     "/"
   ],
   "bar.workspaces.applicationIconMap": {
-    "proton.vpn.app.gtk": "\udb81\udd82",
-    "codium": "\uf372",
-    "com.stremio.stremio": "\uf144",
-    "Beeper": "\udb82\udf79",
-    "ente": "\uf03e"
+    "proton.vpn.app.gtk": "󰖂",
+    "codium": "",
+    "com.stremio.stremio": "",
+    "Beeper": "󰭹",
+    "ente": "",
+    "filezilla": ""
   }
 }
