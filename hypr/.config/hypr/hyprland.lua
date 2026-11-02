@@ -329,11 +329,17 @@ hl.window_rule({
 
 -- GROMIT-MPX RULES
 hl.workspace_rule({
-    workspace        = "special:gromit",
-    gaps_in          = 0,
-    gaps_out         = 0,
-    on_created_empty = "gromit-mpx -a",
+    workspace = "special:gromit",
+    gaps_in   = 0,
+    gaps_out  = 0,
 })
+
+-- Replaces the deprecated on_created_empty workspace rule.
+hl.on("workspace.created", function(ws)
+    if ws.name == "special:gromit" and ws.is_empty then
+        hl.exec_cmd("gromit-mpx -a")
+    end
+end)
 
 hl.window_rule({
     name  = "gromit-mpx",
