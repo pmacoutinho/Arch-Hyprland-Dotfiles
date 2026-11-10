@@ -10,6 +10,16 @@ echo ""
 echo "--- Pruning Docker ---"
 docker system prune -a -f
 
+# Buildx builders: reclaim ~8.5G (docker system prune does not reach the
+# cache of docker-container builders such as mec-builder)
+echo "--- Pruning Docker buildx builder caches ---"
+builders=$(docker buildx ls --format json 2>/dev/null \
+    | python3 -c 'import sys, json; [print(json.loads(l)["Name"]) for l in sys.stdin if l.strip()]') || true
+for builder in $builders; do
+    echo "Builder: $builder"
+    docker buildx prune --builder "$builder" --all -f || true
+done
+
 # Pacman cache: reclaim ~3G (keep only 1 version of each package)
 echo "--- Cleaning pacman cache (keeping 1 version) ---"
 sudo paccache -rk1

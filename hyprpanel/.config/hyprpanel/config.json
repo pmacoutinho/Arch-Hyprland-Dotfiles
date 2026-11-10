@@ -1,5 +1,5 @@
 {
-  "menus.clock.weather.key": "YOUR_API_KEY_HERE",
+  "menus.clock.weather.key": "/home/pedro/.local/share/hyprpanel/weather.json",
   "menus.clock.weather.unit": "metric",
   "menus.clock.weather.location": "Aveiro",
   "bar.windowtitle.title_map": [
@@ -32,6 +32,11 @@
       "filezilla",
       "",
       "FileZilla"
+    ],
+    [
+      "tidal-hifi",
+      "󰎆",
+      "TIDAL"
     ]
   ],
   "theme.font.size": ".9rem",
@@ -112,6 +117,7 @@
     "com.stremio.stremio": "",
     "Beeper": "󰭹",
     "ente": "",
-    "filezilla": ""
+    "filezilla": "",
+    "tidal-hifi": "󰎆"
   }
 }
