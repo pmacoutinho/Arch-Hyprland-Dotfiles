@@ -14,14 +14,30 @@ set_shader() {
 # Never stack with hyprsunset, or the laptop panel gets tinted twice
 pkill -x "hyprsunset"
 
-if hyprctl getoption decoration:screen_shader | grep -qF "$SHADER"; then
-    echo "Night mode is on. Turning it off..."
-    set_shader ""
-else
-    echo "Night mode is off. Turning it on..."
+enable() {
     # Only tint non-mirror monitors; mirrors inherit the tinted frame
     cond=$(hyprctl monitors all -j | jq -r '[.[] | select(.mirrorOf == "none") | "wl_output == \(.id)"] | join(" || ")')
     mkdir -p "$(dirname "$SHADER")"
     sed "s/^#define TINT_OUTPUT .*/#define TINT_OUTPUT (${cond:-true})/" "$TEMPLATE" > "$SHADER"
     set_shader "$SHADER"
+}
+
+is_on() { hyprctl getoption decoration:screen_shader | grep -qF "$SHADER"; }
+
+# --refresh: monitor layout changed (mirror <-> extend); rebuild the shader
+# for the new layout if night mode is on, otherwise do nothing.
+if [ "$1" = "--refresh" ]; then
+    if is_on; then
+        set_shader ""   # force a recompile; same path wouldn't reload
+        enable
+    fi
+    exit 0
+fi
+
+if is_on; then
+    echo "Night mode is on. Turning it off..."
+    set_shader ""
+else
+    echo "Night mode is off. Turning it on..."
+    enable
 fi

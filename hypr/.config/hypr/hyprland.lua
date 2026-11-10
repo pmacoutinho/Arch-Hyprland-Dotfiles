@@ -30,13 +30,55 @@ hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" 
 local MIRROR_SRC  = "eDP-1"
 local MIRROR_OUTS = { "HDMI-A-1", "DP-1" }
 
+-- Display mode: "mirror" (default) or "extend" (externals become a second
+-- screen to the right of the panel). Toggled with Fn+F3, which this HP OMEN's
+-- firmware sends as SUPER+P. The mode is kept in $XDG_RUNTIME_DIR so it
+-- survives config reloads but resets to mirror on a fresh login.
+local MODE_FILE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hypr-display-mode"
+
+local function read_display_mode()
+    local f = io.open(MODE_FILE, "r")
+    if not f then return "mirror" end
+    local m = f:read("*l")
+    f:close()
+    return m == "extend" and "extend" or "mirror"
+end
+
+local display_mode = read_display_mode()
+
+-- hl.get_monitor() returns nil for an output that is currently mirroring, so
+-- look outputs up via get_monitors({ all = true }), which includes mirrors.
+local function monitor_present(name)
+    for _, m in ipairs(hl.get_monitors({ all = true })) do
+        if m.name == name then return true end
+    end
+    return false
+end
+
 local function apply_mirrors()
-    if not hl.get_monitor(MIRROR_SRC) then return end
+    if not monitor_present(MIRROR_SRC) then return end
     for _, out in ipairs(MIRROR_OUTS) do
-        if hl.get_monitor(out) then
-            hl.monitor({ output = out, mode = "1920x1080@144", mirror = MIRROR_SRC })
+        if monitor_present(out) then
+            if display_mode == "extend" then
+                -- mirror = "" is required; omitting it keeps the old mirror
+                hl.monitor({ output = out, mode = "1920x1080@144", position = "auto-right", scale = 1, mirror = "" })
+            else
+                hl.monitor({ output = out, mode = "1920x1080@144", mirror = MIRROR_SRC })
+            end
         end
     end
+end
+
+local function toggle_display_mode()
+    display_mode = (display_mode == "extend") and "mirror" or "extend"
+    local f = io.open(MODE_FILE, "w")
+    if f then f:write(display_mode, "\n"); f:close() end
+    apply_mirrors()
+    -- Once the monitors have settled: rebuild night mode's per-layout shader
+    -- and make sure HyprPanel has a bar on the newly extended screen.
+    hl.timer(function()
+        hl.dispatch(hl.dsp.exec_cmd("bash ~/.scripts/display-mode-refresh.sh"))
+    end, { timeout = 600, type = "oneshot" })
 end
 
 apply_mirrors()
@@ -187,8 +229,13 @@ hl.config({
 
 hl.config({
     misc = {
-        force_default_wallpaper = -1,    -- Set to 0 or 1 to disable the anime mascot wallpapers
-        disable_hyprland_logo   = false, -- If true disables the random hyprland logo / anime girl background. :(
+        -- No default wallpaper/logo: it flashed on the external for ~0.5s when
+        -- toggling mirror -> extend, before hyprpaper attached. Instead the
+        -- compositor background matches the wallpaper's dominant colour
+        -- (sushi-dark.png is ~80% #1D1C28), so the gap is barely visible.
+        force_default_wallpaper = 0,
+        disable_hyprland_logo   = true,
+        background_color        = "rgb(1d1c28)",
     },
 })
 
@@ -241,7 +288,10 @@ hl.bind(mainMod .. " + M", hl.dsp.exit())
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + V", hl.dsp.window.float({ action = "toggle" }))
 hl.bind(mainMod .. " + R", hl.dsp.exec_cmd(menu))
-hl.bind(mainMod .. " + P", hl.dsp.window.pseudo())
+-- Fn+F3 arrives as SUPER+P (HP display-switch key): toggle mirror / extend.
+-- Pseudo-tiling moved from SUPER+P to SUPER+SHIFT+P to make room.
+hl.bind(mainMod .. " + P", toggle_display_mode)
+hl.bind(mainMod .. " + SHIFT + P", hl.dsp.window.pseudo())
 hl.bind(mainMod .. " + G", hl.dsp.layout("swapsplit")) -- dwindle
 
 -- ADDED BINDS
