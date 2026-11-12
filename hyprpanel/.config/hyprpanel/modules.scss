@@ -97,3 +97,11 @@ $network-icons: (
     background-position: center;
   }
 }
+
+// Notification popups sit right under the bar's reserved space with ~2px to
+// spare; pad the popup window's card list so there's a visible gap. (The empty
+// window is only 2px wide, so the padding never blocks clicks. Scoped to the
+// popup window: the dashboard's notification list uses the same class.)
+.notifications-window .notification-card-container {
+  padding-top: 9px;
+}
