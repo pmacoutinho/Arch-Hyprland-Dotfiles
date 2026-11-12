@@ -98,10 +98,13 @@ $network-icons: (
   }
 }
 
-// Notification popups sit right under the bar's reserved space with ~2px to
-// spare; pad the popup window's card list so there's a visible gap. (The empty
-// window is only 2px wide, so the padding never blocks clicks. Scoped to the
-// popup window: the dashboard's notification list uses the same class.)
+// Notification popups sit right under the bar's reserved space, flush with the
+// screen edge. Place them like macOS does: a clear gap below the bar (~15px)
+// and the right edge lined up with the floating bar's (6px from the screen
+// edge; the container already has 1px padding). The empty window stays tiny,
+// so the padding never blocks clicks. Scoped to the popup window: the
+// dashboard's notification list uses the same class.
 .notifications-window .notification-card-container {
-  padding-top: 9px;
+  padding-top: 15px;
+  padding-right: 5px;
 }
