@@ -57,3 +57,43 @@
     opacity: 0.7;
   }
 }
+
+// Network modules that ignore VPN tunnels (~/.scripts/network-status.sh), in the
+// built-in network module's colours. One module per state, only one visible at
+// a time (hideOnEmpty), because each needs its own icon.
+//
+// Icons are the Caticons ones the built-in module showed, tinted purple, in
+// ~/.local/share/icons/hicolor/scalable/apps/hyprpanel-network-*.svg. Plain
+// (non-symbolic) icons, because GTK's CSS symbolic renderer smears them, in a
+// whole 14px box so they sit on the pixel grid like the built-in ones.
+$network-icons: (
+  'network-wired': 'hyprpanel-network-wired',
+  'network-wifi-0': 'hyprpanel-network-wireless-0',
+  'network-wifi-1': 'hyprpanel-network-wireless-1',
+  'network-wifi-2': 'hyprpanel-network-wireless-2',
+  'network-wifi-3': 'hyprpanel-network-wireless-3',
+  'network-wifi-4': 'hyprpanel-network-wireless-4',
+  'network-offline': 'hyprpanel-network-offline',
+);
+
+@each $mod, $icon in $network-icons {
+  @include styleModule(
+    'cmodule-#{$mod}',
+    (
+      'text-color': #cba6f7,
+      'icon-color': #cba6f7,
+      'border-enabled': true,
+      'border-color': #cba6f7,
+    )
+  );
+
+  .module-icon.cmodule-#{$mod} {
+    font-size: 1px;
+    min-width: 14px;
+    min-height: 14px;
+    background-image: -gtk-icontheme($icon);
+    background-size: 14px 14px;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+}

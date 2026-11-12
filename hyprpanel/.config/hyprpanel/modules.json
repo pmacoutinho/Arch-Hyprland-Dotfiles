@@ -52,5 +52,103 @@
       "onLeftClick": "~/.scripts/vpn-proton-connect.sh",
       "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
+  },
+  "custom/network-wired": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wired",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-wifi-0": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wifi-0",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-wifi-1": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wifi-1",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-wifi-2": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wifi-2",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-wifi-3": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wifi-3",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-wifi-4": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh wifi-4",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
+  },
+  "custom/network-offline": {
+    "icon": "\u2003",
+    "label": "{text}",
+    "tooltip": "{tooltip}",
+    "truncationSize": -1,
+    "execute": "~/.scripts/network-status.sh off",
+    "executeOnAction": "",
+    "interval": 3000,
+    "hideOnEmpty": true,
+    "scrollThreshold": 4,
+    "actions": {
+      "onLeftClick": "menu:network"
+    }
   }
 }
