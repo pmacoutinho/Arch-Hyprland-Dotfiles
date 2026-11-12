@@ -14,7 +14,7 @@
     "scrollThreshold": 4,
     "actions": {
       "onLeftClick": "~/.scripts/vpn-proton-disconnect.sh",
-      "onRightClick": "menu:network"
+      "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   },
   "custom/vpn-it": {
@@ -50,7 +50,7 @@
     "scrollThreshold": 4,
     "actions": {
       "onLeftClick": "~/.scripts/vpn-proton-connect.sh",
-      "onRightClick": "menu:network"
+      "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   }
 }
