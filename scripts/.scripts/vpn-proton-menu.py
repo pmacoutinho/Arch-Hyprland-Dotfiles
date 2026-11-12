@@ -3,6 +3,15 @@
 
 Styled after HyprPanel's own network menu. Opens centred under the cursor,
 closes on Esc, on a click outside it, or when launched again (toggle).
+
+Optionally also offers one OpenVPN 3 profile (e.g. a work VPN), configured in
+a local, untracked file:
+    ~/.config/vpn-proton-menu/custom-vpn.conf
+        label=Work VPN
+        config=~/path/to/profile.ovpn
+Clicking it asks for a username and password inside the menu, like HyprPanel's
+Wi-Fi password prompt; they go to ~/.scripts/openvpn3-connect.py on stdin.
+Only the username is remembered.
 """
 import json
 import os
@@ -18,6 +27,11 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 CONNECT = os.path.expanduser("~/.scripts/vpn-proton-connect.sh")
+OPENVPN3_CONNECT = os.path.expanduser("~/.scripts/openvpn3-connect.py")
+CUSTOM_CONF = os.path.expanduser("~/.config/vpn-proton-menu/custom-vpn.conf")
+CUSTOM_USER = os.path.join(
+    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+    "vpn-proton-menu", "custom-vpn-user")
 DISCONNECT = os.path.expanduser("~/.scripts/vpn-proton-disconnect.sh")
 PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "vpn-proton-menu.pid")
 
@@ -28,6 +42,7 @@ BAR_HEIGHT = 48
 # Accent colours, matching the VPN buttons in ~/.config/hyprpanel/modules.scss
 GREEN = (0xA6, 0xE3, 0xA1)  # custom/vpn-proton (connected)
 PINK = (0xF3, 0x8B, 0xA8)   # custom/vpn-off (disconnected)
+LAVENDER = (0xB4, 0xBE, 0xFE)  # custom/vpn-it (custom OpenVPN 3 profile connected)
 
 # (connect-script argument, icon, title, subtitle)
 SERVERS = [
@@ -39,7 +54,9 @@ SERVERS = [
 CHOICE_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "vpn-proton-choice")
 
 CSS = """
-* { font-family: "Ubuntu Nerd Font"; font-weight: 600; font-size: 14px; }
+/* Sizes match HyprPanel's network menu (measured): 13px text, 0.9em subtitles,
+   14px section titles, 17px icons. */
+* { font-family: "Ubuntu Nerd Font"; font-weight: 600; font-size: 13px; }
 window, .backdrop { background: transparent; }
 .menu {
   background: #11111b; color: #cdd6f4;
@@ -53,7 +70,7 @@ window, .backdrop { background: transparent; }
   margin: 1em 1em 0 1em; min-height: 2em;
 }
 .label-container.next { margin-top: 0.65em; }
-.section-label { color: @ACCENT@; font-size: 15px; font-weight: bold; margin: 0.5em 1em; }
+.section-label { color: @ACCENT@; font-size: 14px; font-weight: bold; margin: 0.5em 1em; }
 .section {
   background: #1e1e2e; border-radius: 0 0 0.4em 0.4em;
   padding: 0.9em; margin: 0 1em;
@@ -61,13 +78,28 @@ window, .backdrop { background: transparent; }
 button { background: none; border: none; box-shadow: none; padding: 0; margin: 0; min-height: 0; min-width: 0; }
 .item { padding: 0.3em 0; }
 .item:not(:last-child) { margin-bottom: 0.4em; }
-.icon { font-size: 19px; color: #9399b2; min-width: 1.4em; }
+.icon { font-size: 17px; color: #9399b2; min-width: 1.4em; }
 .item:hover .icon, .item.active .icon, .icon.active { color: @ACCENT@; }
 .item:hover .title, .item.active .title { color: @ACCENT@; }
 .title { color: #cdd6f4; }
-.dim { color: #cdd6f4; opacity: 0.5; font-size: 12px; }
-.icon-button { color: #cdd6f4; font-size: 21px; padding: 0 0.3em; }
+.dim { color: #cdd6f4; opacity: 0.5; font-size: 0.9em; }
+.icon-button { color: #cdd6f4; font-size: 18px; padding: 0 0.3em; }
 .icon-button:hover { color: #f38ba8; }
+.login { margin-top: 0.6em; }
+.field {
+  background: #14141f; border-radius: 0.4em;
+  padding: 0.45em 0.6em; margin: 0 0 0.45em 0;
+}
+.field entry { background: none; border: none; box-shadow: none; color: #cdd6f4; padding: 0; min-height: 0; caret-color: @ACCENT@; }
+.field-icon { color: #9399b2; font-size: 14px; min-width: 1.4em; }
+.connect {
+  background: @ACCENT@; color: #11111b; border-radius: 0.4em;
+  padding: 0.4em 0; margin-top: 0.15em;
+}
+.connect:hover { opacity: 0.85; }
+.login-error { color: #f38ba8; font-size: 0.9em; margin-bottom: 0.4em; }
+.eye { color: #9399b2; font-size: 15px; min-width: 1.4em; }
+.eye.hover, .eye.on { color: @ACCENT@; }
 """
 
 
@@ -96,6 +128,55 @@ def current_server():
         if kind == "vpn" and name.startswith("ProtonVPN"):
             return name.removeprefix("ProtonVPN").strip()
     return ""
+
+
+def load_custom_vpn():
+    """The optional extra OpenVPN 3 profile: {'label', 'config', 'name'} or None."""
+    conf = {}
+    try:
+        with open(CUSTOM_CONF) as f:
+            for line in f:
+                key, sep, value = line.strip().partition("=")
+                if sep and not key.startswith("#"):
+                    conf[key.strip()] = value.strip()
+    except OSError:
+        return None
+    if "config" not in conf:
+        return None
+    path = os.path.expanduser(conf["config"])
+    # openvpn3 names sessions started from a file after the file.
+    return {"label": conf.get("label", "Custom VPN"), "config": path,
+            "name": os.path.basename(path)}
+
+
+def custom_vpn_up(custom):
+    if not custom:
+        return False
+    try:
+        return subprocess.run(
+            ["openvpn3", "session-stats", "--config", custom["name"]],
+            capture_output=True, timeout=3,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def remembered_user():
+    try:
+        with open(CUSTOM_USER) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def remember_user(user):
+    try:
+        os.makedirs(os.path.dirname(CUSTOM_USER), mode=0o700, exist_ok=True)
+        fd = os.open(CUSTOM_USER, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(user + "\n")
+    except OSError:
+        pass
 
 
 def active_choice(server):
@@ -177,20 +258,28 @@ def module_center(cx, origin, mon_width, color):
     return x0 + (left + right) / 2
 
 
-def run_detached(label, *cmd):
-    """Run a VPN script after the menu closes, with start/finish notifications."""
+def run_detached(label, *cmd, app="Proton VPN", stdin=None):
+    """Run a VPN script after the menu closes, with start/finish notifications.
+
+    stdin (e.g. credentials) is piped to the command, never put on its command line.
+    """
     # The CLI prints "Connected to …" / "Disconnected." on stdout but errors on
     # stderr, so keep both, then drop its Python deprecation noise.
     script = r'''
-# The logo SVG is only 36x36, which HyprPanel stretches; use a 256px render.
-svg=/usr/share/icons/hicolor/scalable/apps/proton-vpn-logo.svg
-icon="${XDG_CACHE_HOME:-$HOME/.cache}/vpn-proton-menu/proton-vpn-logo-256.png"
-if [ ! -s "$icon" ]; then
-    mkdir -p "${icon%/*}"
-    rsvg-convert -w 256 -h 256 "$svg" -o "$icon" 2>/dev/null || icon=$svg
+app=$1; shift
+icon_args=()
+if [ "$app" = "Proton VPN" ]; then
+    # The logo SVG is only 36x36, which HyprPanel stretches; use a 256px render.
+    svg=/usr/share/icons/hicolor/scalable/apps/proton-vpn-logo.svg
+    icon="${XDG_CACHE_HOME:-$HOME/.cache}/vpn-proton-menu/proton-vpn-logo-256.png"
+    if [ ! -s "$icon" ]; then
+        mkdir -p "${icon%/*}"
+        rsvg-convert -w 256 -h 256 "$svg" -o "$icon" 2>/dev/null || icon=$svg
+    fi
+    icon_args=(-i "$icon")
 fi
-notify() { notify-send -a "Proton VPN" -i "$icon" "$@"; }
-id=$(notify -p "Proton VPN" "$1…"); shift
+notify() { notify-send -a "$app" "${icon_args[@]}" "$@"; }
+id=$(notify -p "$app" "$1…" </dev/null); shift
 out=$("$@" 2>&1); status=$?
 # HyprPanel ignores replace-ids, so close the "…" notification explicitly.
 gdbus call --session --dest org.freedesktop.Notifications \
@@ -201,22 +290,28 @@ if [ -z "$msg" ]; then
     msg=$(printf '%s\n' "$out" | grep -viE 'warning|eventlet|framework|migration|monkey|sentry|^[[:space:]]*$' | tail -1)
 fi
 if [ "$status" -ne 0 ] || [[ "$msg" == Error* ]]; then
-    notify -u critical "Proton VPN: failed" "${msg:-Command exited with status $status}"
+    notify -u critical "$app: failed" "${msg:-Command exited with status $status}"
 else
-    notify "Proton VPN" "${msg:-Done}"
+    notify "$app" "${msg:-Done}"
 fi
 '''
-    subprocess.Popen(
-        ["bash", "-c", script, "vpn-menu", label, *cmd],
+    proc = subprocess.Popen(
+        ["bash", "-c", script, "vpn-menu", app, label, *cmd],
         start_new_session=True,
+        stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    if stdin is not None:
+        proc.stdin.write(stdin.encode())
+        proc.stdin.close()
 
 
 class Menu(Gtk.Window):
-    def __init__(self, server, accent):
+    def __init__(self, server, custom=None, custom_up=False, pos=None, center=None):
         super().__init__()
         self.server = server
+        self.custom = custom
+        self.custom_up = custom_up
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "vpn-proton-menu")
@@ -252,13 +347,14 @@ class Menu(Gtk.Window):
 
         menu.add(self.status_section())
         menu.add(self.servers_section())
+        if self.custom:
+            menu.add(self.custom_section())
 
-        pos = cursor_position()
         if pos:
             cx, origin, mon_width = pos
             self.place_on_monitor(origin)
             # Centre on the button itself; fall back to the cursor.
-            x = (module_center(cx, origin, mon_width, accent) or cx) - origin[0]
+            x = (center if center is not None else cx) - origin[0]
             # WIDTH already includes the .menu margin that holds the shadow.
             total = WIDTH
             left = max(4, min(round(x - total / 2), mon_width - total - 4))
@@ -290,33 +386,38 @@ class Menu(Gtk.Window):
 
     def status_section(self):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        wrap.add(self.header("Proton VPN"))
+        custom_on = self.custom_up and not self.server
+        wrap.add(self.header(self.custom["label"] if custom_on else "Proton VPN"))
+        connected = self.server or (self.custom["label"] if custom_on else "")
 
         section = Gtk.Box(spacing=0)
         section.get_style_context().add_class("section")
 
-        icon = Gtk.Label(label="󰌾" if self.server else "󰌿")
+        icon = Gtk.Label(label="󰌾" if connected else "󰌿")
         icon.get_style_context().add_class("icon")
-        if self.server:
+        if connected:
             icon.get_style_context().add_class("active")
         section.pack_start(icon, False, False, 0)
 
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         text.set_margin_start(10)
-        title = Gtk.Label(label=self.server or "Not connected", xalign=0)
+        title = Gtk.Label(label=connected or "Not connected", xalign=0)
         title.get_style_context().add_class("title")
-        sub = Gtk.Label(label="Connected" if self.server else "Disconnected", xalign=0)
+        sub = Gtk.Label(label="Connected" if connected else "Disconnected", xalign=0)
         sub.get_style_context().add_class("dim")
         text.add(title)
         text.add(sub)
         section.pack_start(text, True, True, 0)
 
-        if self.server:
+        if connected:
             off = Gtk.Button(label="󰐥")
             off.set_tooltip_text("Disconnect")
             off.get_style_context().add_class("icon-button")
             off.set_valign(Gtk.Align.CENTER)
-            off.connect("clicked", lambda *_: self.choose("Disconnecting", DISCONNECT))
+            if self.server:
+                off.connect("clicked", lambda *_: self.choose("Disconnecting", DISCONNECT))
+            else:
+                off.connect("clicked", lambda *_: self.disconnect_custom())
             section.pack_end(off, False, False, 0)
 
         wrap.add(section)
@@ -324,7 +425,7 @@ class Menu(Gtk.Window):
 
     def servers_section(self):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        wrap.add(self.header("Servers", "next"))
+        wrap.add(self.header("Proton VPN Servers", "next"))
 
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         section.get_style_context().add_class("section")
@@ -360,6 +461,149 @@ class Menu(Gtk.Window):
         button.connect("clicked", lambda *_: self.choose(f"Connecting to {name}", CONNECT, arg))
         return button
 
+    def custom_section(self):
+        """The extra OpenVPN 3 profile, with an inline sign-in form."""
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.add(self.header("Other", "next"))
+
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        section.get_style_context().add_class("section")
+
+        label = self.custom["label"]
+        button = Gtk.Button()
+        ctx = button.get_style_context()
+        ctx.add_class("item")
+        if self.custom_up:
+            ctx.add_class("active")
+        row = Gtk.Box()
+        icon = Gtk.Label(label="󰖂")
+        icon.get_style_context().add_class("icon")
+        row.pack_start(icon, False, False, 0)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        text.set_margin_start(10)
+        title = Gtk.Label(label=label, xalign=0)
+        title.get_style_context().add_class("title")
+        sub = Gtk.Label(label="Connected" if self.custom_up else "Sign in to connect", xalign=0)
+        sub.get_style_context().add_class("dim")
+        text.add(title)
+        text.add(sub)
+        row.pack_start(text, True, True, 0)
+        button.add(row)
+        section.add(button)
+
+        # With Proton also up, the status card shows Proton, so put this
+        # profile's disconnect button on its own row.
+        if self.custom_up and self.server:
+            off = Gtk.Button(label="󰐥")
+            off.set_tooltip_text("Disconnect")
+            off.get_style_context().add_class("icon-button")
+            off.set_valign(Gtk.Align.CENTER)
+            off.connect("clicked", lambda *_: self.disconnect_custom())
+            row.pack_end(off, False, False, 0)
+
+        if not self.custom_up:
+            self.login = Gtk.Revealer()
+            self.login.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+            self.login.set_transition_duration(150)
+            self.login.add(self.login_form())
+            section.add(self.login)
+            button.connect("clicked", lambda *_: self.toggle_login())
+
+        wrap.add(section)
+        return wrap
+
+    def field(self, glyph, placeholder, secret=False):
+        box = Gtk.Box()
+        box.get_style_context().add_class("field")
+        icon = Gtk.Label(label=glyph)
+        icon.get_style_context().add_class("field-icon")
+        box.pack_start(icon, False, False, 0)
+        entry = Gtk.Entry()
+        entry.set_placeholder_text(placeholder)
+        entry.set_has_frame(False)
+        if secret:
+            entry.set_visibility(False)
+            entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        box.pack_start(entry, True, True, 6)
+        if secret:
+            # Show/hide toggle, like HyprPanel's Wi-Fi password prompt. A plain
+            # label in an event box: a GtkButton whose label changes under the
+            # pointer ignores the next click until the mouse moves.
+            eye = Gtk.Label(label="󰈈")
+            eye.get_style_context().add_class("eye")
+            area = Gtk.EventBox()
+            area.set_tooltip_text("Show password")
+            area.add(eye)
+            area.connect("button-press-event", self.toggle_secret, eye, entry)
+            area.connect("enter-notify-event", lambda *_: eye.get_style_context().add_class("hover"))
+            area.connect("leave-notify-event", lambda *_: eye.get_style_context().remove_class("hover"))
+            box.pack_end(area, False, False, 0)
+        return box, entry
+
+    def toggle_secret(self, area, event, eye, entry):
+        if event.button != Gdk.BUTTON_PRIMARY or event.type != Gdk.EventType.BUTTON_PRESS:
+            return True  # also swallows the extra events of a double click
+        shown = not entry.get_visibility()
+        entry.set_visibility(shown)
+        eye.set_label("󰈉" if shown else "󰈈")
+        area.set_tooltip_text("Hide password" if shown else "Show password")
+        ctx = eye.get_style_context()
+        (ctx.add_class if shown else ctx.remove_class)("on")
+        entry.grab_focus_without_selecting()
+        return True
+
+    def login_form(self):
+        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        form.get_style_context().add_class("login")
+        self.login_error = Gtk.Label(xalign=0)
+        self.login_error.get_style_context().add_class("login-error")
+        self.login_error.set_no_show_all(True)
+        form.add(self.login_error)
+
+        user_box, self.user_entry = self.field("󰀄", "Username")
+        self.user_entry.set_text(remembered_user())
+        pass_box, self.pass_entry = self.field("󰌋", "Password", secret=True)
+        form.add(user_box)
+        form.add(pass_box)
+
+        connect = Gtk.Button(label="Connect")
+        connect.get_style_context().add_class("connect")
+        connect.connect("clicked", lambda *_: self.submit_login())
+        form.add(connect)
+
+        self.user_entry.connect("activate", lambda *_: self.pass_entry.grab_focus())
+        self.pass_entry.connect("activate", lambda *_: self.submit_login())
+        return form
+
+    def toggle_login(self):
+        opening = not self.login.get_reveal_child()
+        self.login.set_reveal_child(opening)
+        if opening:
+            (self.pass_entry if self.user_entry.get_text() else self.user_entry).grab_focus()
+
+    def submit_login(self):
+        user = self.user_entry.get_text().strip()
+        password = self.pass_entry.get_text()
+        if not user or not password:
+            self.login_error.set_text("Enter your username and password")
+            self.login_error.show()
+            (self.pass_entry if user else self.user_entry).grab_focus()
+            return
+        remember_user(user)
+        label = self.custom["label"]
+        run_detached(f"Connecting to {label}", OPENVPN3_CONNECT, self.custom["config"], label,
+                     app=label, stdin=f"{user}\n{password}\n")
+        self.pass_entry.set_text("")
+        self.close_menu()
+
+    def disconnect_custom(self):
+        label = self.custom["label"]
+        run_detached(
+            "Disconnecting", "bash", "-c",
+            'openvpn3 session-manage -D --config "$1" >/dev/null && echo "Disconnected from $2."',
+            "disconnect", self.custom["name"], label, app=label)
+        self.close_menu()
+
     def choose(self, label, *cmd):
         run_detached(label, *cmd)
         self.close_menu()
@@ -382,7 +626,20 @@ def main():
     try:
         provider = Gtk.CssProvider()
         server = current_server()
-        accent = GREEN if server else PINK
+        custom = load_custom_vpn()
+        custom_up = custom_vpn_up(custom)
+        # Both VPN buttons can be on the bar at once: use the colour of the one
+        # that was clicked, found by its border colour under the cursor.
+        candidates = [c for c, on in ((GREEN, bool(server)), (LAVENDER, custom_up)) if on] or [PINK]
+        accent, center = candidates[0], None
+        pos = cursor_position()
+        if pos:
+            cx, origin, mon_width = pos
+            for colour in candidates:
+                found = module_center(cx, origin, mon_width, colour)
+                if found is not None:
+                    accent, center = colour, found
+                    break
         provider.load_from_data(CSS.replace("@ACCENT@", "#%02x%02x%02x" % accent).encode())
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
@@ -393,7 +650,7 @@ def main():
         except (ImportError, ValueError):
             add_signal = GLib.unix_signal_add
         add_signal(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: Gtk.main_quit() or False)
-        win = Menu(server, accent)
+        win = Menu(server, custom, custom_up, pos, center)
         win.show_all()
         Gtk.main()
     finally:

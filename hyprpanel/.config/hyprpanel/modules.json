@@ -32,7 +32,7 @@
     "scrollThreshold": 4,
     "actions": {
       "onLeftClick": "bash -c '~/.scripts/vpn-custom-toggle.sh'",
-      "onRightClick": "menu:network"
+      "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   },
   "custom/vpn-off": {
