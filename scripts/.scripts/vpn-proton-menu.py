@@ -28,6 +28,7 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 CONNECT = os.path.expanduser("~/.scripts/vpn-proton-connect.sh")
 OPENVPN3_CONNECT = os.path.expanduser("~/.scripts/openvpn3-connect.py")
+NOTIFY = os.path.expanduser("~/.scripts/vpn-notify.sh")
 CUSTOM_CONF = os.path.expanduser("~/.config/vpn-proton-menu/custom-vpn.conf")
 CUSTOM_USER = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
@@ -260,44 +261,12 @@ def module_center(cx, origin, mon_width, color):
 
 
 def run_detached(label, *cmd, app="Proton VPN", stdin=None):
-    """Run a VPN script after the menu closes, with start/finish notifications.
+    """Run a VPN command after the menu closes, via vpn-notify.sh (notifications).
 
     stdin (e.g. credentials) is piped to the command, never put on its command line.
     """
-    # The CLI prints "Connected to …" / "Disconnected." on stdout but errors on
-    # stderr, so keep both, then drop its Python deprecation noise.
-    script = r'''
-app=$1; shift
-icon_args=()
-if [ "$app" = "Proton VPN" ]; then
-    # The logo SVG is only 36x36, which HyprPanel stretches; use a 256px render.
-    svg=/usr/share/icons/hicolor/scalable/apps/proton-vpn-logo.svg
-    icon="${XDG_CACHE_HOME:-$HOME/.cache}/vpn-proton-menu/proton-vpn-logo-256.png"
-    if [ ! -s "$icon" ]; then
-        mkdir -p "${icon%/*}"
-        rsvg-convert -w 256 -h 256 "$svg" -o "$icon" 2>/dev/null || icon=$svg
-    fi
-    icon_args=(-i "$icon")
-fi
-notify() { notify-send -a "$app" "${icon_args[@]}" "$@"; }
-id=$(notify -p "$app" "$1…" </dev/null); shift
-out=$("$@" 2>&1); status=$?
-# HyprPanel ignores replace-ids, so close the "…" notification explicitly.
-gdbus call --session --dest org.freedesktop.Notifications \
-    --object-path /org/freedesktop/Notifications \
-    --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null 2>&1
-msg=$(printf '%s\n' "$out" | grep -E '^(Connected to|Disconnected|Error)' | tail -1)
-if [ -z "$msg" ]; then
-    msg=$(printf '%s\n' "$out" | grep -viE 'warning|eventlet|framework|migration|monkey|sentry|^[[:space:]]*$' | tail -1)
-fi
-if [ "$status" -ne 0 ] || [[ "$msg" == Error* ]]; then
-    notify -u critical "$app: failed" "${msg:-Command exited with status $status}"
-else
-    notify "$app" "${msg:-Done}"
-fi
-'''
     proc = subprocess.Popen(
-        ["bash", "-c", script, "vpn-menu", app, label, *cmd],
+        [NOTIFY, app, label, *cmd],
         start_new_session=True,
         stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

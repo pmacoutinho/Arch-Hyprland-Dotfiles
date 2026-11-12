@@ -13,7 +13,7 @@
     "hideOnEmpty": true,
     "scrollThreshold": 4,
     "actions": {
-      "onLeftClick": "~/.scripts/vpn-proton-disconnect.sh",
+      "onLeftClick": "~/.scripts/vpn-notify.sh 'Proton VPN' 'Disconnecting' ~/.scripts/vpn-proton-disconnect.sh",
       "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   },
@@ -31,7 +31,7 @@
     "hideOnEmpty": true,
     "scrollThreshold": 4,
     "actions": {
-      "onLeftClick": "bash -c '~/.scripts/vpn-custom-toggle.sh'",
+      "onLeftClick": "~/.scripts/vpn-notify.sh 'Custom VPN' 'Disconnecting' ~/.scripts/vpn-custom-toggle.sh",
       "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   },
@@ -49,7 +49,7 @@
     "hideOnEmpty": true,
     "scrollThreshold": 4,
     "actions": {
-      "onLeftClick": "~/.scripts/vpn-proton-connect.sh",
+      "onLeftClick": "~/.scripts/vpn-notify.sh 'Proton VPN' 'Connecting to Portugal' ~/.scripts/vpn-proton-connect.sh",
       "onRightClick": "~/.scripts/vpn-proton-menu.py"
     }
   },
