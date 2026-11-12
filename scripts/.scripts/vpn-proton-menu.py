@@ -38,6 +38,7 @@ PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "vpn-proton-me
 WIDTH = 300
 TOP = 50  # just below the bar, same as HyprPanel's dropdowns
 BAR_HEIGHT = 48
+POWER_ICON_SIZE = 16
 
 # Accent colours, matching the VPN buttons in ~/.config/hyprpanel/modules.scss
 GREEN = (0xA6, 0xE3, 0xA1)  # custom/vpn-proton (connected)
@@ -83,7 +84,7 @@ button { background: none; border: none; box-shadow: none; padding: 0; margin: 0
 .item:hover .title, .item.active .title { color: @ACCENT@; }
 .title { color: #cdd6f4; }
 .dim { color: #cdd6f4; opacity: 0.5; font-size: 0.9em; }
-.icon-button { color: #cdd6f4; font-size: 18px; padding: 0 0.3em; }
+.icon-button { color: #cdd6f4; padding: 0 0.3em; }
 .icon-button:hover { color: #f38ba8; }
 .login { margin-top: 0.6em; }
 .field {
@@ -384,6 +385,18 @@ class Menu(Gtk.Window):
         box.pack_start(label, True, True, 0)
         return box
 
+    def power_button(self, on_click):
+        """Disconnect button with the icon theme's power icon (tinted by CSS colour)."""
+        image = Gtk.Image.new_from_icon_name("system-shutdown-symbolic", Gtk.IconSize.BUTTON)
+        image.set_pixel_size(POWER_ICON_SIZE)
+        button = Gtk.Button()
+        button.add(image)
+        button.set_tooltip_text("Disconnect")
+        button.get_style_context().add_class("icon-button")
+        button.set_valign(Gtk.Align.CENTER)
+        button.connect("clicked", on_click)
+        return button
+
     def status_section(self):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         custom_on = self.custom_up and not self.server
@@ -410,14 +423,10 @@ class Menu(Gtk.Window):
         section.pack_start(text, True, True, 0)
 
         if connected:
-            off = Gtk.Button(label="󰐥")
-            off.set_tooltip_text("Disconnect")
-            off.get_style_context().add_class("icon-button")
-            off.set_valign(Gtk.Align.CENTER)
             if self.server:
-                off.connect("clicked", lambda *_: self.choose("Disconnecting", DISCONNECT))
+                off = self.power_button(lambda *_: self.choose("Disconnecting", DISCONNECT))
             else:
-                off.connect("clicked", lambda *_: self.disconnect_custom())
+                off = self.power_button(lambda *_: self.disconnect_custom())
             section.pack_end(off, False, False, 0)
 
         wrap.add(section)
@@ -494,12 +503,7 @@ class Menu(Gtk.Window):
         # With Proton also up, the status card shows Proton, so put this
         # profile's disconnect button on its own row.
         if self.custom_up and self.server:
-            off = Gtk.Button(label="󰐥")
-            off.set_tooltip_text("Disconnect")
-            off.get_style_context().add_class("icon-button")
-            off.set_valign(Gtk.Align.CENTER)
-            off.connect("clicked", lambda *_: self.disconnect_custom())
-            row.pack_end(off, False, False, 0)
+            row.pack_end(self.power_button(lambda *_: self.disconnect_custom()), False, False, 0)
 
         if not self.custom_up:
             self.login = Gtk.Revealer()
