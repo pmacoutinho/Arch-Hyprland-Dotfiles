@@ -13,8 +13,10 @@ Firefox may clear (e.g. "delete site data on close"). So the page also saves
 them here (~/.local/share/nighttab-data/data.json, last 5 versions kept as
 data.json.1…5) and restores them when its localStorage is empty.
 
-Point new tabs at http://127.0.0.1:PORT/ (e.g. with the "New Tab Override"
-add-on). nightTab's own files: ~/.local/share/nighttab (nighttab-install).
+Point new tabs at http://127.0.0.1:PORT/. Best with a Firefox autoconfig
+(/usr/lib/firefox/firefox.cfg) setting AboutNewTab.newTabURL: Firefox then
+keeps the address bar empty and focused, which a new-tab add-on can't do.
+nightTab's own files: ~/.local/share/nighttab (nighttab-install).
 
 Usage: nighttab-server [PORT]   (default 47321; run by nighttab.service)
 """
