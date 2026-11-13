@@ -196,7 +196,7 @@ def apply_hyprpanel(meta):
     config.update(colours)
     was_running = hyprpanel_running()
     if was_running:
-        run("hyprpanel", "-q")
+        run(os.path.join(HOME, ".scripts/hyprpanel-quit"))
         for _ in range(30):
             if not hyprpanel_running():
                 break

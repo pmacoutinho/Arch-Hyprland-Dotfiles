@@ -200,21 +200,30 @@ class Backdrop:
         self.update()
         GLib.timeout_add(1500, self.keep_under_bar)
 
-    def keep_under_bar(self):
-        """If HyprPanel's bar was created before the strip (so it's drawn under
-        it), restart HyprPanel to put the bar back on top. Only happens when
-        the strip is (re)created after the bar, not at login."""
-        layers = hyprctl("layers") or {}
-        for monitor in layers.values():
+    def keep_under_bar(self, attempt=0):
+        """If a HyprPanel bar was created before the strip (so it's drawn under
+        it), hide and show that bar: shown again, it's created on top. Only
+        happens when the strip is (re)created after the bar (e.g. a screen
+        added or extended), not at login. Restarts HyprPanel if that fails."""
+        below = []
+        for monitor in (hyprctl("layers") or {}).values():
             for level in monitor.get("levels", {}).values():
                 names = [layer["namespace"] for layer in level]
                 if "bar-backdrop" in names:
-                    bars = [i for i, n in enumerate(names) if n.startswith("bar-") and n != "bar-backdrop"]
-                    if bars and min(bars) < names.index("bar-backdrop"):
-                        subprocess.run(["hyprpanel", "-q"], capture_output=True, timeout=10)
-                        subprocess.run(["hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))'],
-                                       capture_output=True, timeout=10)
-                        return False
+                    below += [n for n in names[:names.index("bar-backdrop")]
+                              if n.startswith("bar-") and n != "bar-backdrop"]
+        if not below:
+            return False
+        if attempt == 0:
+            for bar in below:
+                for _ in range(2):  # hide, show
+                    # (the hyprpanel wrapper joins its arguments into one, so call astal)
+                    subprocess.run(["astal", "-i", "hyprpanel", "-t", bar], capture_output=True, timeout=10)
+            GLib.timeout_add(700, self.keep_under_bar, 1)
+        else:
+            subprocess.run([os.path.expanduser("~/.scripts/hyprpanel-quit")], capture_output=True, timeout=10)
+            subprocess.run(["hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))'],
+                           capture_output=True, timeout=10)
         return False
 
     def update(self):

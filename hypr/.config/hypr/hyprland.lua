@@ -63,9 +63,10 @@ local function apply_mirrors()
         if monitor_present(out) then
             if display_mode == "extend" then
                 -- mirror = "" is required; omitting it keeps the old mirror
-                hl.monitor({ output = out, mode = "1920x1080@144", position = "auto-right", scale = 1, mirror = "" })
+                hl.monitor({ output = out, mode = "1920x1080@144", position = "auto-right", scale = 1,
+                             mirror = "", disabled = false })
             else
-                hl.monitor({ output = out, mode = "1920x1080@144", mirror = MIRROR_SRC })
+                hl.monitor({ output = out, mode = "1920x1080@144", mirror = MIRROR_SRC, disabled = false })
             end
         end
     end
@@ -77,14 +78,22 @@ local function toggle_display_mode()
     if f then f:write(display_mode, "\n"); f:close() end
     apply_mirrors()
     -- Once the monitors have settled: rebuild night mode's per-layout shader
-    -- and make sure HyprPanel has a bar on the newly extended screen.
+    -- and make sure the newly extended screen got its bar.
     hl.timer(function()
         hl.dispatch(hl.dsp.exec_cmd("bash ~/.scripts/display-mode-refresh.sh"))
     end, { timeout = 600, type = "oneshot" })
 end
 
-apply_mirrors()
-hl.on("monitor.added", apply_mirrors)
+-- An output that is a mirror from the moment it appears is never announced to
+-- apps (no wl_output), so when it's later extended HyprPanel, hyprpaper etc.
+-- can't put anything on it. One that was a normal screen first stays known
+-- through mirroring. So new outputs (login, hotplug) start as normal screens
+-- and are mirrored half a second later. (display-mode-refresh.sh still
+-- switches an extended screen off and on if it got no bar.)
+hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
+hl.on("monitor.added", function()
+    hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
+end)
 hl.on("config.reloaded", function()
     hl.timer(apply_mirrors, { timeout = 250, type = "oneshot" })
 end)

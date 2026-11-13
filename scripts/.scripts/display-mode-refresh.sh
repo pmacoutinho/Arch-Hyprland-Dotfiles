@@ -5,30 +5,31 @@
 # Night mode's shader is built per-layout (it skips mirror outputs).
 sh ~/.scripts/toggleHyprsunset.sh --refresh
 
-# HyprPanel only creates bars for monitors it saw unmirrored while running.
-# If it started while the external was mirrored (e.g. at login), an extended
-# monitor never gets a bar, so restart it in that case. Give it ~2s first,
-# since it does re-add bars for monitors it already knows.
-missing_bar() {
+# An extended screen should get its HyprPanel bar by itself (hyprland.lua makes
+# sure apps know every screen). If one still has none after ~2s, the screen
+# isn't known to apps (it was a mirror from the start): switch it off and on
+# again so Hyprland announces it, and HyprPanel adds the bar. That blanks it
+# for a second, so it's only the fallback.
+bar_less() {
     local layers
     layers=$(hyprctl layers -j)
     for mon in $(hyprctl monitors all -j | jq -r '.[] | select(.mirrorOf == "none" and (.disabled | not)) | .name'); do
         # skip headless/virtual outputs (e.g. "tab")
         [[ $mon == HEADLESS* || $mon == tab ]] && continue
-        if ! jq -e --arg m "$mon" '[.[$m].levels[]?[]? | select(.namespace | startswith("bar-"))] | length > 0' <<<"$layers" >/dev/null; then
-            return 0
-        fi
+        jq -e --arg m "$mon" '[.[$m].levels[]?[]? | select(.namespace | startswith("bar-"))] | length > 0' \
+            <<<"$layers" >/dev/null || echo "$mon"
     done
-    return 1
 }
 
-pgrep -f hyprpanel-app >/dev/null || exit 0
+pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' >/dev/null || exit 0
 
 for _ in 1 2 3 4; do
-    missing_bar || exit 0
+    [ -z "$(bar_less)" ] && exit 0
     sleep 0.5
 done
 
-hyprpanel -q
-sleep 1
-hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null
+for mon in $(bar_less); do
+    hyprctl eval "hl.monitor({ output = \"$mon\", disabled = true })" >/dev/null
+    sleep 0.4
+    hyprctl eval "hl.monitor({ output = \"$mon\", mode = \"1920x1080@144\", position = \"auto-right\", scale = 1, mirror = \"\", disabled = false })" >/dev/null
+done

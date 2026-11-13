@@ -1,0 +1,16 @@
+#!/bin/bash
+# Quit HyprPanel, and stop the bluetooth.py helper it leaves running: every
+# `hyprpanel -q` orphans one, and theme switches restart HyprPanel, so they
+# piled up (~290 of them, 1.8 GB, on 2026-11-13). Used by theme-set,
+# bar-backdrop.py and display-mode-refresh.sh before starting HyprPanel again.
+hyprpanel -q >/dev/null 2>&1
+for _ in $(seq 30); do
+    pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' >/dev/null || break
+    sleep 0.1
+done
+ps -eo pid=,ppid=,args= | awk '$3 == "python3" && $4 == "/usr/share/hyprpanel/scripts/bluetooth.py" {print $1, $2}' |
+    while read -r pid ppid; do
+        # Keep the one belonging to a running HyprPanel (its parent is gjs).
+        [[ $(tr '\0' ' ' < "/proc/$ppid/cmdline" 2>/dev/null) == *gjs* ]] || kill "$pid" 2>/dev/null
+    done
+exit 0
