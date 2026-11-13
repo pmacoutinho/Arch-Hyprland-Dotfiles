@@ -14,10 +14,11 @@ background = "dopesmoker_gruvbox.png"
 #
 # Workspace icons: HyprPanel's gruvbox uses bright red (#fb4934, 96%
 # saturation), too loud on the bar; the same red hue at 55% saturation.
-# The workspace and tray boxes get a cream outline (Gruvbox light0_soft) instead of
-# HyprPanel's pure white, which is too stark for the theme.
+# The workspace box gets that red as its outline too (HyprPanel has pure
+# white), like the other boxes whose outline matches their contents; the
+# tray box gets Gruvbox's cream text colour (fg, softer than white).
 [hyprpanel_overrides]
 "theme.bar.buttons.modules.weather.text" = "#83a598"
 "theme.bar.buttons.workspaces.occupied" = "#d06b5f"
-"theme.bar.buttons.workspaces.border" = "#f2e5bc"
-"theme.bar.buttons.systray.border" = "#f2e5bc"
+"theme.bar.buttons.workspaces.border" = "#d06b5f"
+"theme.bar.buttons.systray.border" = "#ebdbb2"
