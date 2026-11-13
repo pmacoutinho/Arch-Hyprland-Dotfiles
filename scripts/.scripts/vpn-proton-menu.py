@@ -303,7 +303,7 @@ def run_detached(label, *cmd, app="Proton VPN", stdin=None):
 
 
 class Menu(Gtk.Window):
-    def __init__(self, server, custom=None, custom_up=False, pos=None, center=None):
+    def __init__(self, server, custom=None, custom_up=False, pos=None, center=None, from_it=False):
         super().__init__()
         self.server = server
         self.custom = custom
@@ -341,10 +341,16 @@ class Menu(Gtk.Window):
         menu.set_size_request(WIDTH, -1)
         holder.add(menu)
 
-        menu.add(self.status_section())
-        menu.add(self.servers_section())
-        if self.custom:
-            menu.add(self.custom_section())
+        if from_it and self.custom:
+            # Opened from the IT VPN's button: that VPN first, then Proton.
+            menu.add(self.custom_section(self.custom["label"]))
+            menu.add(self.status_section("next"))
+            menu.add(self.servers_section())
+        else:
+            menu.add(self.status_section())
+            menu.add(self.servers_section())
+            if self.custom:
+                menu.add(self.custom_section("Other", "next"))
 
         if pos:
             cx, origin, mon_width = pos
@@ -392,39 +398,34 @@ class Menu(Gtk.Window):
         button.connect("clicked", on_click)
         return button
 
-    def status_section(self):
-        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        custom_on = self.custom_up and not self.server
-        wrap.add(self.header(self.custom["label"] if custom_on else "Proton VPN"))
-        connected = self.server or (self.custom["label"] if custom_on else "")
-
+    def status_card(self, title_text, connected, on_disconnect):
+        """A card row: lock icon, name and state, and a power button when up."""
         section = Gtk.Box(spacing=0)
         section.get_style_context().add_class("section")
-
         icon = Gtk.Label(label="󰌾" if connected else "󰌿")
         icon.get_style_context().add_class("icon")
         if connected:
             icon.get_style_context().add_class("active")
         section.pack_start(icon, False, False, 0)
-
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         text.set_margin_start(10)
-        title = Gtk.Label(label=connected or "Not connected", xalign=0)
+        title = Gtk.Label(label=title_text, xalign=0)
         title.get_style_context().add_class("title")
         sub = Gtk.Label(label="Connected" if connected else "Disconnected", xalign=0)
         sub.get_style_context().add_class("dim")
         text.add(title)
         text.add(sub)
         section.pack_start(text, True, True, 0)
-
         if connected:
-            if self.server:
-                off = self.power_button(lambda *_: self.choose("Disconnecting", DISCONNECT))
-            else:
-                off = self.power_button(lambda *_: self.disconnect_custom())
-            section.pack_end(off, False, False, 0)
+            section.pack_end(self.power_button(lambda *_: on_disconnect()), False, False, 0)
+        return section
 
-        wrap.add(section)
+    def status_section(self, extra_class=None):
+        """Proton VPN: current server and a power button."""
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.add(self.header("Proton VPN", extra_class))
+        wrap.add(self.status_card(self.server or "Not connected", bool(self.server),
+                                  lambda: self.choose("Disconnecting", DISCONNECT)))
         return wrap
 
     def servers_section(self):
@@ -465,20 +466,20 @@ class Menu(Gtk.Window):
         button.connect("clicked", lambda *_: self.choose(f"Connecting to {name}", CONNECT, arg))
         return button
 
-    def custom_section(self):
-        """The extra OpenVPN 3 profile, with an inline sign-in form."""
+    def custom_section(self, heading, extra_class=None):
+        """The extra OpenVPN 3 profile: a card with a power button when it's up,
+        otherwise an entry that opens the inline sign-in form."""
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        wrap.add(self.header("Other", "next"))
+        wrap.add(self.header(heading, extra_class))
+        label = self.custom["label"]
+        if self.custom_up:
+            wrap.add(self.status_card(label, True, self.disconnect_custom))
+            return wrap
 
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         section.get_style_context().add_class("section")
-
-        label = self.custom["label"]
         button = Gtk.Button()
-        ctx = button.get_style_context()
-        ctx.add_class("item")
-        if self.custom_up:
-            ctx.add_class("active")
+        button.get_style_context().add_class("item")
         row = Gtk.Box()
         icon = Gtk.Label(label="󰖂")
         icon.get_style_context().add_class("icon")
@@ -487,27 +488,19 @@ class Menu(Gtk.Window):
         text.set_margin_start(10)
         title = Gtk.Label(label=label, xalign=0)
         title.get_style_context().add_class("title")
-        sub = Gtk.Label(label="Connected" if self.custom_up else "Sign in to connect", xalign=0)
+        sub = Gtk.Label(label="Sign in to connect", xalign=0)
         sub.get_style_context().add_class("dim")
         text.add(title)
         text.add(sub)
         row.pack_start(text, True, True, 0)
         button.add(row)
         section.add(button)
-
-        # With Proton also up, the status card shows Proton, so put this
-        # profile's disconnect button on its own row.
-        if self.custom_up and self.server:
-            row.pack_end(self.power_button(lambda *_: self.disconnect_custom()), False, False, 0)
-
-        if not self.custom_up:
-            self.login = Gtk.Revealer()
-            self.login.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-            self.login.set_transition_duration(150)
-            self.login.add(self.login_form())
-            section.add(self.login)
-            button.connect("clicked", lambda *_: self.toggle_login())
-
+        self.login = Gtk.Revealer()
+        self.login.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.login.set_transition_duration(150)
+        self.login.add(self.login_form())
+        section.add(self.login)
+        button.connect("clicked", lambda *_: self.toggle_login())
         wrap.add(section)
         return wrap
 
@@ -597,9 +590,15 @@ class Menu(Gtk.Window):
 
     def disconnect_custom(self):
         label = self.custom["label"]
+        # By session path: the profile is imported single-use, so once connected
+        # its config is gone and `session-manage --config` can't find it.
         run_detached(
             "Disconnecting", "bash", "-c",
-            'openvpn3 session-manage -D --config "$1" >/dev/null && echo "Disconnected from $2."',
+            'path=$(openvpn3 sessions-list | awk -v name="Config name: $1" '
+            "'/Path:/ {p = $2} index($0, name) {print p; exit}'); "
+            '[ -n "$path" ] || { echo "Error: no $2 session found"; exit 1; }; '
+            'openvpn3 session-manage --session-path "$path" --disconnect >/dev/null '
+            '&& echo "Disconnected from $2."',
             "disconnect", self.custom["name"], label, app=label)
         self.close_menu()
 
@@ -654,7 +653,10 @@ def main():
         except (ImportError, ValueError):
             add_signal = GLib.unix_signal_add
         add_signal(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: Gtk.main_quit() or False)
-        win = Menu(server, custom, custom_up, pos, center)
+        # Opened from the IT VPN's button (its colour was found under the cursor,
+        # or it's the only VPN up): show that VPN first.
+        win = Menu(server, custom, custom_up, pos, center,
+                   from_it=custom_up and accent == it)
         win.show_all()
         Gtk.main()
     finally:
