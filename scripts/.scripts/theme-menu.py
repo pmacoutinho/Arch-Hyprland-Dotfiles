@@ -16,9 +16,12 @@ import json
 import math
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tomllib
+
+import cairo
 
 import gi
 
@@ -53,6 +56,11 @@ PILL_PAD_X, PILL_PAD_Y = 16, 7
 BORDER = 2
 UNSELECTED_DIM = 0.45
 FONT = "sans Medium"
+# Motion: every value eases towards its target with this time constant
+# (seconds; ~3x it to settle), whatever the refresh rate.
+TAU = 0.055
+OPEN_SCALE = 0.9       # the preview grows from this on open, slices fan out from it
+LABEL_FROM = 0.3       # a new label fades in from this opacity
 
 
 # --- data ------------------------------------------------------------------
@@ -147,7 +155,8 @@ def background_items():
 
 
 def thumbnail(path):
-    """Cover-cropped EXPANDED_W x EXPANDED_H preview, cached on disk."""
+    """Cover-cropped EXPANDED_W x EXPANDED_H preview as a cairo surface,
+    cached on disk as raw pixels (~0.3 ms to load, a PNG takes 8-20 ms)."""
     if not path:
         return None
     try:
@@ -155,9 +164,16 @@ def thumbnail(path):
     except OSError:
         return None
     key = hashlib.sha1(f"{path}:{mtime}:{EXPANDED_W}x{EXPANDED_H}".encode()).hexdigest()
-    cached = os.path.join(CACHE, key + ".png")
-    if os.path.exists(cached):
-        return GdkPixbuf.Pixbuf.new_from_file(cached)
+    cached = os.path.join(CACHE, key + ".argb")
+    stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_ARGB32, EXPANDED_W)
+    try:
+        with open(cached, "rb") as f:
+            data = bytearray(f.read())
+        if len(data) == stride * EXPANDED_H:
+            return cairo.ImageSurface.create_for_data(data, cairo.FORMAT_ARGB32,
+                                                      EXPANDED_W, EXPANDED_H, stride)
+    except OSError:
+        pass
     try:
         info, w, h = GdkPixbuf.Pixbuf.get_file_info(path)
         scale = max(EXPANDED_W / w, EXPANDED_H / h)
@@ -165,11 +181,21 @@ def thumbnail(path):
         full = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, sw, sh, False)
         pix = full.new_subpixbuf((sw - EXPANDED_W) // 2, (sh - EXPANDED_H) // 2,
                                  EXPANDED_W, EXPANDED_H).copy()
-        os.makedirs(CACHE, exist_ok=True)
-        pix.savev(cached, "png", [], [])
-        return pix
     except GLib.Error:
         return None
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, EXPANDED_W, EXPANDED_H)
+    cr = cairo.Context(surface)
+    Gdk.cairo_set_source_pixbuf(cr, pix, 0, 0)
+    cr.paint()
+    surface.flush()
+    os.makedirs(CACHE, exist_ok=True)
+    with open(cached + ".tmp", "wb") as f:
+        f.write(bytes(surface.get_data()))
+    os.replace(cached + ".tmp", cached)
+    for name in os.listdir(CACHE):  # PNGs from before the raw cache
+        if name.endswith(".png"):
+            os.remove(os.path.join(CACHE, name))
+    return surface
 
 
 # --- window ----------------------------------------------------------------
@@ -179,8 +205,20 @@ class Picker(Gtk.Window):
         super().__init__()
         self.all_items = items
         for item in items:
-            item["pixbuf"] = thumbnail(item["image"])
+            item["surface"] = None
             item["rect"] = None
+            item["alpha"] = 0.0
+            item["sel"] = 0.0
+        self.label, self.label_alpha = None, 0.0
+        self.last_frame = None
+        # Only the selected preview before the window shows; the rest load
+        # nearest first while it opens.
+        self.load_preview(items[selected])
+        self.to_load = sorted((i for i in items if i is not items[selected]),
+                              key=lambda i: abs(items.index(i) - selected))
+        GLib.idle_add(self.load_next)
+        self.ticking = False
+        self.dirty = None
         self.filter = ""
         self.visible_items = list(items)
         self.selected = selected
@@ -213,18 +251,40 @@ class Picker(Gtk.Window):
         self.connect("scroll-event", self.on_scroll)
         self.connect("key-press-event", self.on_key)
         self.connect("destroy", Gtk.main_quit)
-        self.add_tick_callback(self.on_tick)
+        self.connect("size-allocate", lambda *a: self.kick())
 
     def place_on_cursor_monitor(self):
+        # Hyprland's socket directly: hyprctl as a subprocess costs ~5 ms.
+        sock = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
+                            os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket.sock")
         try:
-            cx, cy = (int(v) for v in subprocess.run(
-                ["hyprctl", "cursorpos"], capture_output=True, text=True, timeout=2).stdout.split(","))
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+            with socket.socket(socket.AF_UNIX) as s:
+                s.settimeout(2)
+                s.connect(sock)
+                s.sendall(b"cursorpos")
+                cx, cy = (int(v) for v in s.recv(64).decode().split(","))
+        except (OSError, ValueError):
             return
         display = Gdk.Display.get_default()
         monitor = display.get_monitor_at_point(cx, cy)
         if monitor:
             GtkLayerShell.set_monitor(self, monitor)
+
+    # previews
+
+    @staticmethod
+    def load_preview(item):
+        """The thumbnail as a cairo surface, converted once (not every frame)."""
+        item["surface"] = thumbnail(item["image"])
+
+    def load_next(self):
+        if not self.to_load:
+            return GLib.SOURCE_REMOVE
+        item = self.to_load.pop(0)
+        self.load_preview(item)
+        if item["rect"]:
+            self.queue_rect(item["rect"])
+        return GLib.SOURCE_CONTINUE
 
     # layout
 
@@ -232,7 +292,10 @@ class Picker(Gtk.Window):
         """Target rect (x, y, w, h) of every visible item, and the card rect."""
         carousel_w = EXPANDED_W + 2 * (SIDE * STEP + SLICE_SPACING)
         card_w = min(width - 80, carousel_w + 40)
-        bottom = LABEL_GAP + LABEL_SIZE + 2 * PILL_PAD_Y + (FILTER_SIZE + 2 * PILL_PAD_Y + 8 if self.filter else 0)
+        # Pills hold a line of text (~1.4x the font size); some room for the
+        # border and descenders, since drawing is clipped to the card.
+        pill = lambda size: math.ceil(size * 1.4) + 2 * PILL_PAD_Y
+        bottom = LABEL_GAP + pill(LABEL_SIZE) + (8 + pill(FILTER_SIZE) if self.filter else 0) + 6
         card_h = TOP_MARGIN + EXPANDED_H + bottom
         card_x, card_y = (width - card_w) / 2, (height - card_h) / 2
         preview_x = (width - EXPANDED_W) / 2
@@ -251,24 +314,72 @@ class Picker(Gtk.Window):
             rects[id(item)] = (x, y, SLICE_W, SLICE_H)
         return rects, (card_x, card_y, card_w, card_h)
 
+    def kick(self):
+        """Animate towards the new layout; the frame clock runs only while
+        something moves."""
+        if not self.ticking:
+            self.ticking = True
+            self.last_frame = None
+            self.add_tick_callback(self.on_tick)
+
+    def queue_rect(self, rect):
+        """Redraw only the carousel, not the whole full-screen window."""
+        x, y, w, h = rect
+        self.area.queue_draw_area(int(x) - 4, int(y) - 4, int(w) + 8, int(h) + 8)
+
     def on_tick(self, widget, clock):
         alloc = self.get_allocation()
+        old_card = self.card
         rects, self.card = self.targets(alloc.width, alloc.height)
+        # The card holds every visible slice and the label; on a filter change
+        # it grows or shrinks, so the old area is redrawn too.
+        x0, y0 = min(old_card[0], self.card[0]), min(old_card[1], self.card[1])
+        x1 = max(old_card[0] + old_card[2], self.card[0] + self.card[2])
+        y1 = max(old_card[1] + old_card[3], self.card[1] + self.card[3])
+        now = clock.get_frame_time() / 1e6
+        dt = min(0.05, now - self.last_frame) if self.last_frame else 1 / 144
+        self.last_frame = now
+        k = 1 - math.exp(-dt / TAU)
         moving = False
-        for item in self.visible_items:
+
+        def ease(current, target, done):
+            nonlocal moving
+            if abs(target - current) <= done:
+                return target
+            moving = True
+            return current + (target - current) * k
+
+        opening = not any(i["rect"] for i in self.all_items)
+        if opening and self.visible_items:
+            # Open: the preview grows from the middle and the slices fan out
+            # from behind it.
+            px, py, pw, ph = rects[id(self.visible_items[self.selected])]
+            cx, cy = px + pw / 2, py + ph / 2
+            for item in self.visible_items:
+                x, y, w, h = rects[id(item)]
+                if item is self.visible_items[self.selected]:
+                    w, h = w * OPEN_SCALE, h * OPEN_SCALE
+                item["rect"] = (cx - w / 2 + (x + w / 2 - cx) * 0.35, cy - h / 2, w, h)
+        for n, item in enumerate(self.visible_items):
             target = rects[id(item)]
-            if item["rect"] is None:
-                item["rect"] = target
-                continue
-            new = tuple(c + (t - c) * 0.28 for c, t in zip(item["rect"], target))
-            if any(abs(t - c) > 0.5 for c, t in zip(new, target)):
-                moving = True
-                item["rect"] = new
-            else:
-                item["rect"] = target
-        if moving or not getattr(self, "_drawn", False):
+            if item["rect"] is None:  # back after a filter change: fade in where it belongs
+                item["rect"], item["alpha"] = target, 0.0
+            item["rect"] = tuple(ease(c, t, 0.3) for c, t in zip(item["rect"], target))
+            item["alpha"] = ease(item["alpha"], self.fade(n), 0.004)
+            item["sel"] = ease(item["sel"], 1.0 if n == self.selected else 0.0, 0.004)
+        label = self.visible_items[self.selected]["label"] if self.visible_items else None
+        if label != self.label:
+            self.label = label
+            self.label_alpha = min(self.label_alpha, LABEL_FROM)
+        self.label_alpha = ease(self.label_alpha, 1.0, 0.004)
+        if not getattr(self, "_drawn", False):
             self.area.queue_draw()
-        return GLib.SOURCE_CONTINUE
+        else:
+            self.queue_rect((x0, y0, x1 - x0, y1 - y0))
+        if moving:
+            return GLib.SOURCE_CONTINUE
+        self.ticking = False
+        return GLib.SOURCE_REMOVE
 
     # drawing
 
@@ -287,37 +398,35 @@ class Picker(Gtk.Window):
         d = abs(n - self.selected)
         return 1.0 if d <= SIDE - 2 else max(0.0, 1 - (d - SIDE + 2) / 3)
 
-    def draw_item(self, cr, item, selected, alpha):
+    def draw_item(self, cr, item):
         x, y, w, h = item["rect"]
+        alpha, sel_amount = item["alpha"], item["sel"]
         # Animated: the corners follow the size between slice and preview.
         r = SLICE_RADIUS + (RADIUS - SLICE_RADIUS) * max(0.0, min(1.0, (w - SLICE_W) / (EXPANDED_W - SLICE_W)))
         dim, sel = self.colours["dim"], self.colours["selected"]
-        cr.push_group()
         cr.save()
         self.shape(cr, x, y, w, h, r)
         cr.clip()
-        pix = item["pixbuf"]
-        if pix:
+        surface = item["surface"]
+        if surface:
             # The preview stays full size and centred on the item: a slice
             # shows the middle strip of it, like Omarchy.
-            Gdk.cairo_set_source_pixbuf(cr, pix, x + w / 2 - EXPANDED_W / 2, y + h / 2 - EXPANDED_H / 2)
-            cr.paint()
+            cr.set_source_surface(surface, round(x + w / 2 - EXPANDED_W / 2), round(y + h / 2 - EXPANDED_H / 2))
         else:
             cr.set_source_rgb(*dim)
-            cr.paint()
-        if not selected:
-            cr.set_source_rgba(*dim, UNSELECTED_DIM)
+        # Painting is limited to the clip (the item), never the whole window.
+        cr.paint_with_alpha(alpha)
+        if sel_amount < 1:
+            cr.set_source_rgba(*dim, UNSELECTED_DIM * (1 - sel_amount) * alpha)
             cr.paint()
         cr.restore()
-        if selected:
+        if sel_amount > 0:
             # Border inside the edge, so it doesn't grow the rounded shape.
             i = BORDER / 2
             self.shape(cr, x + i, y + i, w - BORDER, h - BORDER, r - i)
             cr.set_line_width(BORDER)
-            cr.set_source_rgb(*sel)
+            cr.set_source_rgba(*sel, alpha * sel_amount)
             cr.stroke()
-        cr.pop_group_to_source()
-        cr.paint_with_alpha(alpha)
 
     def draw_text(self, cr, text, size, y, alpha=1.0):
         """Text in a rounded pill of the theme background (like HyprPanel's
@@ -344,6 +453,11 @@ class Picker(Gtk.Window):
 
     def on_draw(self, widget, cr):
         self._drawn = True
+        # Only the card is ever redrawn (queue_rect), so nothing may be drawn
+        # outside it: a slice flying in from further out would leave a trace.
+        cx, cy, cw, ch = self.card
+        cr.rectangle(cx, cy, cw, ch)
+        cr.clip()
         if not self.visible_items:
             card_x, card_y, card_w, card_h = self.card
             self.draw_text(cr, f"No match for “{self.filter}”", LABEL_SIZE, card_y + card_h / 2)
@@ -352,12 +466,12 @@ class Picker(Gtk.Window):
         order = sorted(range(len(self.visible_items)), key=lambda n: -abs(n - self.selected))
         for n in order:
             item = self.visible_items[n]
-            alpha = self.fade(n)
-            if item["rect"] and alpha > 0:
-                self.draw_item(cr, item, n == self.selected, alpha)
+            if item["rect"] and item["alpha"] > 0.004:
+                self.draw_item(cr, item)
         card_x, card_y, card_w, card_h = self.card
         label_y = card_y + TOP_MARGIN + EXPANDED_H + LABEL_GAP
-        ph = self.draw_text(cr, self.visible_items[self.selected]["label"], LABEL_SIZE, label_y)
+        ph = self.draw_text(cr, self.visible_items[self.selected]["label"], LABEL_SIZE, label_y,
+                            self.label_alpha)
         if self.filter:
             self.draw_text(cr, f"/ {self.filter}", FILTER_SIZE, label_y + ph + 8, 0.85)
 
@@ -410,7 +524,7 @@ class Picker(Gtk.Window):
             if char.isprintable() and char:
                 self.filter += char
                 self.refilter()
-        self.area.queue_draw()
+        self.kick()
         return True
 
     def on_scroll(self, widget, event):
@@ -423,6 +537,7 @@ class Picker(Gtk.Window):
             delta = dy if abs(dy) >= abs(dx) else dx
             if abs(delta) >= 0.5:
                 self.move(1 if delta > 0 else -1)
+        self.kick()
         return True
 
     def on_click(self, widget, event):
@@ -441,6 +556,7 @@ class Picker(Gtk.Window):
                         self.pick()
                     else:
                         self.selected = n
+                        self.kick()
                     return True
         cx, cy, cw, ch = self.card
         if not (cx <= event.x <= cx + cw and cy <= event.y <= cy + ch):
