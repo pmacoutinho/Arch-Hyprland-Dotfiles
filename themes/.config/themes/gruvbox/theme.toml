@@ -1,0 +1,10 @@
+name = "Gruvbox"
+generate = true
+hyprpanel = "gruvbox"
+nvim_colorscheme = "gruvbox"
+lualine = "auto"
+fish = "generate"
+bat = "gruvbox-dark"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/gruvbox/backgrounds"
+background = "dopesmoker_gruvbox.png"

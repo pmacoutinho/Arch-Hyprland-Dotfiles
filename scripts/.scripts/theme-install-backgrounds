@@ -1,0 +1,81 @@
+#!/bin/bash
+# Download the wallpapers for the themes in ~/.config/themes from Omarchy
+# (github.com/omacom/omarchy, MIT), pinned to one commit, into
+# ~/.local/share/themes/<theme>/backgrounds/. WebP files are converted to PNG
+# (GTK and hyprpaper here can't read WebP), and anything bigger than 4K is
+# scaled down to 3840x2160 (some are 8K). Already-present files are skipped.
+#
+# Usage: theme-install-backgrounds [THEME…]   (default: all themes below)
+
+set -u
+OMARCHY_COMMIT=ac6cb9c712848741f994d7ecbaccdbab90b526e8
+BASE="https://raw.githubusercontent.com/omacom/omarchy/$OMARCHY_COMMIT/themes"
+DEST="${XDG_DATA_HOME:-$HOME/.local/share}/themes"
+
+# theme → "omarchy-theme-dir[@commit]: file …"
+declare -A SOURCES=(
+    [catppuccin]="catppuccin: 1-totoro.webp 2-waves.webp 3-blue-eye.webp"
+    # Left out: Omarchy's AI-generated ones (liftoff, winding-road, quattro,
+    # swirl-buck) and ones with Omarchy's logo or name (oma, oma-cityscape,
+    # omarchy-plants).
+    [tokyo-night]="tokyo-night: 4-sunset-lake.webp 5-omakub.webp"
+    [rose-pine]="rose-pine: 1-funky-shapes.webp 2-dot-map.webp"
+    [black-white]="vantablack: 0-dot-hands.webp 1-twisted-stairs.webp 2-layers-deep.webp 3-layers-stacked.webp"
+    # Omarchy replaced Osaka Jade with Jade Horse; this is the last commit with it.
+    [osaka-jade]="osaka-jade@32481c89ed70ced37a9f5b3c7bc48e8d867024cf: 1-glowing-city.webp 2-shaded-entrance.webp 3-mountain-moon.webp"
+    [gruvbox]="gruvbox: 1-the-backwater.jpg 2-flower-basket.webp 3-village-square.jpg 4-idyllic-procession.jpg 5-leaves.jpg"
+)
+# Wallpapers you already have, linked in as well.
+declare -A LOCAL=(
+    [gruvbox]="~/.config/wallpapers/dopesmoker_gruvbox.png"
+)
+
+themes=("$@")
+[ ${#themes[@]} -eq 0 ] && themes=(catppuccin tokyo-night rose-pine black-white osaka-jade gruvbox)
+
+failed=0
+for theme in "${themes[@]}"; do
+    spec=${SOURCES[$theme]:-}
+    if [ -z "$spec" ]; then
+        echo "unknown theme: $theme" >&2
+        failed=1
+        continue
+    fi
+    src=${spec%%:*}
+    out="$DEST/$theme/backgrounds"
+    mkdir -p "$out"
+    for file in ${LOCAL[$theme]:-}; do
+        file=${file/#\~/$HOME}
+        if [ -f "$file" ]; then
+            [ -e "$out/$(basename "$file")" ] || echo "$theme: $(basename "$file") (linked)"
+            ln -sfn "$file" "$out/$(basename "$file")"
+        else
+            echo "$theme: missing $file" >&2
+            failed=1
+        fi
+    done
+    base=$BASE
+    if [[ $src == *@* ]]; then
+        base="https://raw.githubusercontent.com/omacom/omarchy/${src#*@}/themes"
+        src=${src%@*}
+    fi
+    for file in ${spec#*: }; do
+        name=${file%.*}
+        target="$out/$name.png"
+        [ "${file##*.}" = jpg ] && target="$out/$file"
+        if [ -s "$target" ]; then
+            continue
+        fi
+        tmp=$(mktemp --suffix=".${file##*.}")
+        if curl -fsSL --retry 2 -o "$tmp" "$base/$src/backgrounds/$file"; then
+            # Shrink to cover 3840x2160 at most (never enlarge).
+            magick "$tmp" -resize '3840x2160^>' "$target" || failed=1
+            echo "$theme: $(basename "$target")"
+        else
+            echo "$theme: failed to download $file" >&2
+            failed=1
+        fi
+        rm -f "$tmp"
+    done
+done
+exit $failed

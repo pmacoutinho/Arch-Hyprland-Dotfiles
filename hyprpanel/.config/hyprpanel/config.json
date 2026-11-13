@@ -51,7 +51,7 @@
   "bar.media.show_active_only": true,
   "theme.osd.enableShadow": true,
   "theme.osd.location": "right",
-  "theme.bar.transparent": false,
+  "theme.bar.transparent": true,
   "theme.bar.opacity": 90,
   "menus.dashboard.shortcuts.left.shortcut1.icon": "󰈹",
   "menus.dashboard.shortcuts.left.shortcut1.command": "firefox",

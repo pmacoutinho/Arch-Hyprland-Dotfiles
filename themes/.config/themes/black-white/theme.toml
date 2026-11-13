@@ -1,0 +1,11 @@
+# Omarchy's "Vantablack": black, greys and white.
+name = "Black & White"
+generate = true
+hyprpanel = "monochrome"
+# Omarchy generates its Neovim colours from the palette with aether.nvim.
+nvim_colorscheme = "aether"
+lualine = "auto"
+fish = "generate"
+bat = "ansi"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/black-white/backgrounds"

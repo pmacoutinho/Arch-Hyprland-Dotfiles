@@ -1,0 +1,9 @@
+name = "Tokyo Night"
+generate = true
+hyprpanel = "tokyo_night"
+nvim_colorscheme = "tokyonight-night"
+lualine = "auto"
+fish = "generate"
+bat = "ansi"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/tokyo-night/backgrounds"

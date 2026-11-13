@@ -1,0 +1,14 @@
+# Your setup as it was before themes: Rosé Pine in kitty, Hyprland, rofi,
+# starship, fish and the lock screen; Catppuccin Mocha in HyprPanel, Neovim,
+# tmux and GTK. Its app files are hand-kept snapshots, not generated.
+name = "Default"
+generate = false
+hyprpanel = "catppuccin_mocha"
+nvim_colorscheme = "catppuccin-mocha"
+lualine = "dracula"
+fish = "Rosé Pine"
+bat = "Catppuccin-mocha"
+gtk4 = "/usr/share/themes/catppuccin-mocha-flamingo-standard+default/gtk-4.0"
+backgrounds = "~/.config/wallpapers"
+background = "sushi-dark.png"
+lock_background = "~/.config/wallpapers/squiggly.png"

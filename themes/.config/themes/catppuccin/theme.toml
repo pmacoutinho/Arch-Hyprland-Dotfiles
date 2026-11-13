@@ -1,0 +1,11 @@
+name = "Catppuccin"
+generate = true
+hyprpanel = "catppuccin_mocha"
+nvim_colorscheme = "catppuccin-mocha"
+lualine = "auto"
+fish = "catppuccin-mocha"
+bat = "Catppuccin Mocha"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/catppuccin/backgrounds"
+# Caticons is already Catppuccin: keep its folder icons as they are.
+icons = false

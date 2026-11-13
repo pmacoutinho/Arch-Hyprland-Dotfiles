@@ -42,9 +42,35 @@ BAR_HEIGHT = 48
 POWER_ICON_SIZE = 16
 
 # Accent colours, matching the VPN buttons in ~/.config/hyprpanel/modules.scss
-GREEN = (0xA6, 0xE3, 0xA1)  # custom/vpn-proton (connected)
-PINK = (0xF3, 0x8B, 0xA8)   # custom/vpn-off (disconnected)
-LAVENDER = (0xB4, 0xBE, 0xFE)  # custom/vpn-it (custom OpenVPN 3 profile connected)
+# Colours follow the desktop theme: they're read from HyprPanel's config.json,
+# where theme-set writes the theme's colours. The VPN accents are the colours
+# modules.scss gives the VPN buttons. Defaults: Catppuccin Mocha (HyprPanel's).
+HYPRPANEL_CONFIG = os.path.expanduser("~/.config/hyprpanel/config.json")
+THEME_KEYS = {
+    "BG": ("theme.bar.menus.background", "#11111b"),
+    "CARD": ("theme.bar.menus.cards", "#1e1e2e"),
+    "BORDER": ("theme.bar.menus.border.color", "#313244"),
+    "TEXT": ("theme.bar.menus.text", "#cdd6f4"),
+    "ICON": ("theme.bar.menus.menu.network.icons.passive", "#9399b2"),
+    "RED": ("theme.bar.buttons.modules.cpu.text", "#f38ba8"),
+    "VPN_ON": ("theme.bar.buttons.modules.netstat.text", "#a6e3a1"),
+    "VPN_OFF": ("theme.bar.buttons.modules.cpu.text", "#f38ba8"),
+    "VPN_IT": ("theme.bar.buttons.modules.weather.text", "#b4befe"),
+}
+
+
+def theme_colours():
+    try:
+        with open(HYPRPANEL_CONFIG) as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        config = {}
+    return {name: config.get(key, default) for name, (key, default) in THEME_KEYS.items()}
+
+
+def rgb(colour):
+    colour = colour.lstrip("#")
+    return tuple(int(colour[i:i + 2], 16) for i in (0, 2, 4))
 
 # (connect-script argument, icon, title, subtitle)
 SERVERS = [
@@ -61,46 +87,46 @@ CSS = """
 * { font-family: "Ubuntu Nerd Font"; font-weight: 600; font-size: 13px; }
 window, .backdrop { background: transparent; }
 .menu {
-  background: #11111b; color: #cdd6f4;
-  border: 2px solid #313244; border-radius: 0.7em;
+  background: @BG@; color: @TEXT@;
+  border: 2px solid @BORDER@; border-radius: 0.7em;
   padding-bottom: 1em;
   box-shadow: 0 0 6px 1px rgba(0, 0, 0, 0.5);
   margin: 8px;
 }
 .label-container {
-  background: #1e1e2e; border-radius: 0.4em 0.4em 0 0;
+  background: @CARD@; border-radius: 0.4em 0.4em 0 0;
   margin: 1em 1em 0 1em; min-height: 2em;
 }
 .label-container.next { margin-top: 0.65em; }
 .section-label { color: @ACCENT@; font-size: 14px; font-weight: bold; margin: 0.5em 1em; }
 .section {
-  background: #1e1e2e; border-radius: 0 0 0.4em 0.4em;
+  background: @CARD@; border-radius: 0 0 0.4em 0.4em;
   padding: 0.9em; margin: 0 1em;
 }
 button { background: none; border: none; box-shadow: none; padding: 0; margin: 0; min-height: 0; min-width: 0; }
 .item { padding: 0.3em 0; }
 .item:not(:last-child) { margin-bottom: 0.4em; }
-.icon { font-size: 17px; color: #9399b2; min-width: 1.4em; }
+.icon { font-size: 17px; color: @ICON@; min-width: 1.4em; }
 .item:hover .icon, .item.active .icon, .icon.active { color: @ACCENT@; }
 .item:hover .title, .item.active .title { color: @ACCENT@; }
-.title { color: #cdd6f4; }
-.dim { color: #cdd6f4; opacity: 0.5; font-size: 0.9em; }
-.icon-button { color: #cdd6f4; padding: 0 0.3em; }
-.icon-button:hover { color: #f38ba8; }
+.title { color: @TEXT@; }
+.dim { color: @TEXT@; opacity: 0.5; font-size: 0.9em; }
+.icon-button { color: @TEXT@; padding: 0 0.3em; }
+.icon-button:hover { color: @RED@; }
 .login { margin-top: 0.6em; }
 .field {
-  background: #14141f; border-radius: 0.4em;
+  background: @BG@; border-radius: 0.4em;
   padding: 0.45em 0.6em; margin: 0 0 0.45em 0;
 }
-.field entry { background: none; border: none; box-shadow: none; color: #cdd6f4; padding: 0; min-height: 0; caret-color: @ACCENT@; }
-.field-icon { color: #9399b2; font-size: 14px; min-width: 1.4em; }
+.field entry { background: none; border: none; box-shadow: none; color: @TEXT@; padding: 0; min-height: 0; caret-color: @ACCENT@; }
+.field-icon { color: @ICON@; font-size: 14px; min-width: 1.4em; }
 .connect {
-  background: @ACCENT@; color: #11111b; border-radius: 0.4em;
+  background: @ACCENT@; color: @BG@; border-radius: 0.4em;
   padding: 0.4em 0; margin-top: 0.15em;
 }
 .connect:hover { opacity: 0.85; }
-.login-error { color: #f38ba8; font-size: 0.9em; margin-bottom: 0.4em; }
-.eye { color: #9399b2; font-size: 15px; min-width: 1.4em; }
+.login-error { color: @RED@; font-size: 0.9em; margin-bottom: 0.4em; }
+.eye { color: @ICON@; font-size: 15px; min-width: 1.4em; }
 .eye.hover, .eye.on { color: @ACCENT@; }
 """
 
@@ -603,7 +629,9 @@ def main():
         custom_up = custom_vpn_up(custom)
         # Both VPN buttons can be on the bar at once: use the colour of the one
         # that was clicked, found by its border colour under the cursor.
-        candidates = [c for c, on in ((GREEN, bool(server)), (LAVENDER, custom_up)) if on] or [PINK]
+        colours = theme_colours()
+        on, it, off = rgb(colours["VPN_ON"]), rgb(colours["VPN_IT"]), rgb(colours["VPN_OFF"])
+        candidates = [c for c, up in ((on, bool(server)), (it, custom_up)) if up] or [off]
         accent, center = candidates[0], None
         pos = cursor_position()
         if pos:
@@ -613,7 +641,10 @@ def main():
                 if found is not None:
                     accent, center = colour, found
                     break
-        provider.load_from_data(CSS.replace("@ACCENT@", "#%02x%02x%02x" % accent).encode())
+        css = CSS.replace("@ACCENT@", "#%02x%02x%02x" % accent)
+        for name, value in colours.items():
+            css = css.replace(f"@{name}@", value)
+        provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
         try:

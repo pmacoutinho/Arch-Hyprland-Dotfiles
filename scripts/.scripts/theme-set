@@ -1,0 +1,599 @@
+#!/usr/bin/env python3
+"""Switch the desktop theme, like Omarchy's omarchy-theme-set.
+
+Usage:
+    theme-set THEME            switch to a theme in ~/.config/themes
+    theme-set --background IMG set the current theme's wallpaper (remembered per theme)
+    theme-set --reapply        re-apply the current theme (e.g. at login)
+    theme-set --list           list themes ("*" marks the current one)
+
+State lives in ~/.local/state/theme/: `current` links to the theme's folder
+and `background` to its wallpaper; apps read their colours through these:
+    Hyprland borders  ~/.config/hypr/hyprland.lua  (dofile current/hyprland.lua)
+    lock screen       ~/.config/hypr/hyprlock.conf (source current/hyprlock.conf)
+    wallpaper         hyprpaper, via `background`
+    kitty             include current/kitty.conf
+    tmux              source-file current/tmux.conf
+    rofi              @import current/rofi.rasi
+    Neovim            lua/plugins/colorscheme.lua reads current/nvim.lua
+    fish, starship    ~/.config/fish/config.fish (universal variables)
+    Nautilus (GTK4)   ~/.config/gtk-4.0/gtk.css (restarted, windows reopened)
+    folder icons      a Caticons-<theme> icon theme from icons.json
+    HyprPanel         theme colours merged into ~/.config/hyprpanel/config.json
+Running apps are told to reload; everything else picks it up on next start.
+"""
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import tomllib
+import urllib.parse
+
+HOME = os.path.expanduser("~")
+THEMES = os.path.join(HOME, ".config/themes")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local/state")), "theme")
+CURRENT = os.path.join(STATE, "current")
+BACKGROUND = os.path.join(STATE, "background")
+LOCK_BACKGROUND = os.path.join(STATE, "lock-background")
+CHOSEN_BACKGROUNDS = os.path.join(STATE, "backgrounds.json")
+HYPRPANEL_CONFIG = os.path.join(HOME, ".config/hyprpanel/config.json")
+HYPRPANEL_THEMES = "/usr/share/hyprpanel/themes"
+ICONS = os.path.join(HOME, ".local/share/icons/hicolor/scalable/apps")
+CATICONS = os.path.join(HOME, ".icons/Caticons/symbolic/status")
+GTK4 = os.path.join(HOME, ".config/gtk-4.0")
+STARSHIP_BASE = os.path.join(HOME, ".config/starship.toml")
+FISH_THEMES = os.path.join(HOME, ".config/fish/themes")
+IMAGE_EXT = (".png", ".jpg", ".jpeg")
+
+# HyprPanel network icons (see ~/.config/hyprpanel/modules.scss): state -> Caticons icon
+NETWORK_ICONS = {
+    "wired": "network-wired-symbolic",
+    "wireless-0": "network-wireless-signal-none-symbolic",
+    "wireless-1": "network-wireless-signal-weak-symbolic",
+    "wireless-2": "network-wireless-signal-ok-symbolic",
+    "wireless-3": "network-wireless-signal-good-symbolic",
+    "wireless-4": "network-wireless-signal-excellent-symbolic",
+    "offline": "network-wireless-disconnected-symbolic",
+}
+
+
+def run(*cmd, **kw):
+    """Run a command, ignoring failures (an app that isn't running is fine)."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=10, **kw)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def load_toml(path):
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+def themes():
+    return sorted(d for d in os.listdir(THEMES)
+                  if os.path.isfile(os.path.join(THEMES, d, "theme.toml")))
+
+
+def current_theme():
+    try:
+        return os.path.basename(os.path.realpath(CURRENT))
+    except OSError:
+        return None
+
+
+def relink(link, target):
+    tmp = f"{link}.tmp{os.getpid()}"
+    os.symlink(target, tmp)
+    os.replace(tmp, link)
+
+
+# --- wallpaper -------------------------------------------------------------
+
+def backgrounds(meta):
+    folder = os.path.expanduser(meta.get("backgrounds", ""))
+    try:
+        return sorted(os.path.join(folder, f) for f in os.listdir(folder)
+                      if f.lower().endswith(IMAGE_EXT))
+    except OSError:
+        return []
+
+
+def chosen_backgrounds():
+    try:
+        with open(CHOSEN_BACKGROUNDS) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def pick_background(theme, meta):
+    files = backgrounds(meta)
+    chosen = chosen_backgrounds().get(theme)
+    if chosen in files:
+        return chosen
+    default = meta.get("background")
+    if default:
+        path = os.path.join(os.path.expanduser(meta["backgrounds"]), default)
+        if path in files:
+            return path
+    return files[0] if files else None
+
+
+def set_background(theme, path, meta):
+    chosen = chosen_backgrounds()
+    chosen[theme] = path
+    with open(CHOSEN_BACKGROUNDS, "w") as f:
+        json.dump(chosen, f, indent=2)
+    relink(BACKGROUND, path)
+    # The lock screen uses the wallpaper unless the theme names its own.
+    lock = os.path.expanduser(meta.get("lock_background", "")) or path
+    relink(LOCK_BACKGROUND, lock)
+    run("hyprctl", "hyprpaper", "wallpaper", f",{path},cover")
+
+
+# --- apps --------------------------------------------------------------------
+
+def apply_hyprland():
+    path = os.path.join(CURRENT, "hyprland.lua")
+    run("hyprctl", "eval", f'dofile("{path}")')
+
+
+def hyprpanel_theme_keys():
+    """Every colour key any HyprPanel theme sets (all but buttons.style)."""
+    keys = set()
+    for name in os.listdir(HYPRPANEL_THEMES):
+        if name.endswith(".json"):
+            with open(os.path.join(HYPRPANEL_THEMES, name)) as f:
+                keys |= set(json.load(f))
+    keys.discard("theme.bar.buttons.style")
+    return keys
+
+
+def hyprpanel_running():
+    r = run("pgrep", "-f", "hyprpanel-app")
+    return bool(r and r.returncode == 0)
+
+
+def apply_hyprpanel(meta):
+    """Merge the HyprPanel theme's colours into config.json.
+
+    Done with HyprPanel stopped, then restarted: when config.json changes under
+    a running HyprPanel it re-applies every option, and re-applying
+    `wallpaper.enable = false` makes it warn that swww is missing.
+    """
+    # theme.toml names one of HyprPanel's themes, or "generate" for the
+    # hyprpanel.json theme-generate made from the theme's palette.
+    if meta["hyprpanel"] == "generate":
+        source = os.path.join(CURRENT, "hyprpanel.json")
+    else:
+        source = os.path.join(HYPRPANEL_THEMES, f"{meta['hyprpanel']}.json")
+    with open(source) as f:
+        colours = {k: v for k, v in json.load(f).items() if k != "theme.bar.buttons.style"}
+    with open(HYPRPANEL_CONFIG) as f:
+        config = json.load(f)
+    # HyprPanel's theme files don't all set the same keys: drop colours the new
+    # theme doesn't set, so they fall back to HyprPanel's defaults instead of
+    # keeping the previous theme's values.
+    stale = [k for k in hyprpanel_theme_keys() if k in config and k not in colours]
+    if not stale and all(config.get(k) == v for k, v in colours.items()):
+        return colours, False
+    for k in stale:
+        del config[k]
+    config.update(colours)
+    was_running = hyprpanel_running()
+    if was_running:
+        run("hyprpanel", "-q")
+        for _ in range(30):
+            if not hyprpanel_running():
+                break
+            time.sleep(0.1)
+    # Write in place: config.json is a symlink into the dotfiles repo.
+    with open(HYPRPANEL_CONFIG, "w") as f:
+        f.write(json.dumps(config, indent=2, ensure_ascii=False))
+    if was_running:
+        run("hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))')
+    return colours, was_running
+
+
+def network_icons(colours):
+    """Tinted copies of the Caticons network icons, named after the colour."""
+    colour = colours.get("theme.bar.buttons.network.icon", "#cba6f7")
+    os.makedirs(ICONS, exist_ok=True)
+    for state, source in NETWORK_ICONS.items():
+        target = os.path.join(ICONS, f"hyprpanel-network-{state}-{colour.lstrip('#')}.svg")
+        if os.path.exists(target):
+            continue
+        with open(os.path.join(CATICONS, f"{source}.svg")) as f:
+            svg = f.read()
+        with open(target, "w") as f:
+            f.write(re.sub(r"fill:#[0-9a-fA-F]{6}", f"fill:{colour}", svg))
+
+
+def apply_gtk4(theme, meta):
+    source = meta.get("gtk4", "")
+    if source == "generate":
+        files = {"gtk.css": os.path.join(THEMES, theme, "gtk.css"),
+                 "gtk-dark.css": os.path.join(THEMES, theme, "gtk.css")}
+    elif source:
+        files = {name: os.path.join(source, name) for name in ("gtk.css", "gtk-dark.css", "assets")}
+    else:
+        return
+    os.makedirs(GTK4, exist_ok=True)
+    for name, target in files.items():
+        if os.path.exists(target):
+            relink(os.path.join(GTK4, name), target)
+
+
+NAUTILUS_WAITER = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "theme-nautilus-waiter.pid")
+
+
+def nautilus_pid():
+    r = run("pgrep", "-x", "nautilus")
+    return int(r.stdout.split()[0]) if r and r.returncode == 0 and r.stdout.split() else None
+
+
+def nautilus_busy(pid):
+    """Copying or moving files? (Quitting Nautilus would abort that.)"""
+    def io():
+        try:
+            with open(f"/proc/{pid}/io") as f:
+                v = dict(line.split(": ") for line in f.read().splitlines())
+            return int(v["rchar"]) + int(v["wchar"])
+        except (OSError, ValueError, KeyError):
+            return 0
+    before = io()
+    time.sleep(0.7)
+    return io() - before > 2_000_000
+
+
+def nautilus_clients():
+    clients = run("hyprctl", "clients", "-j")
+    try:
+        return [c for c in json.loads(clients.stdout) if c.get("class") == "org.gnome.Nautilus"]
+    except (AttributeError, ValueError):
+        return []
+
+
+def folder_title(uri):
+    """Nautilus's window title for a folder."""
+    path = urllib.parse.unquote(urllib.parse.urlparse(uri).path).rstrip("/")
+    return "Home" if path == HOME else os.path.basename(path) or "/"
+
+
+def nautilus_windows():
+    """[(folder URI, Hyprland workspace)] for each open Nautilus window."""
+    r = run("gdbus", "call", "--session", "--dest", "org.gnome.Nautilus",
+            "--object-path", "/org/freedesktop/FileManager1",
+            "--method", "org.freedesktop.DBus.Properties.Get",
+            "org.freedesktop.FileManager1", "OpenWindowsWithLocations")
+    if not (r and r.returncode == 0):
+        return []
+    tabs = [re.findall(r"'([^']*)'", group)
+            for group in re.findall(r"'/org/gnome/Nautilus/window/\d+': \[([^\]]*)\]", r.stdout)]
+    hypr = nautilus_clients()
+
+    windows = []
+    for uris in tabs:
+        if not uris:
+            continue
+        # The window's title is its current tab's folder: use it to find both.
+        match = next(((u, c) for c in hypr for u in uris if c["title"] == folder_title(u)), None)
+        uri, client = match if match else (uris[0], None)
+        if client:
+            hypr.remove(client)
+        windows.append((uri, client["workspace"]["name"] if client else None))
+    return windows
+
+
+def restart_nautilus():
+    """Quit Nautilus and reopen its windows (current folder of each) on their
+    workspaces, so open windows come back in the new theme."""
+    windows = nautilus_windows()
+    run("nautilus", "-q")
+    for _ in range(50):
+        if not nautilus_pid():
+            break
+        time.sleep(0.1)
+    if not windows:
+        return
+    existing = {c["address"] for c in nautilus_clients()}
+    for uri, _ in windows:
+        subprocess.Popen(["nautilus", "--new-window", uri], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Then put each window back on its workspace (launch rules don't work here:
+    # the windows belong to Nautilus's own process, not the one launched).
+    deadline = time.monotonic() + 8
+    pending = [(uri, ws) for uri, ws in windows if ws]
+    while pending and time.monotonic() < deadline:
+        time.sleep(0.3)
+        for client in nautilus_clients():
+            if client["address"] in existing:
+                continue
+            for item in pending:
+                if client["title"] == folder_title(item[0]):
+                    existing.add(client["address"])
+                    pending.remove(item)
+                    if client["workspace"]["name"] != item[1]:
+                        run("hyprctl", "eval", "hl.dispatch(hl.dsp.window.move({ workspace = "
+                            f"{json.dumps(item[1])}, window = \"address:{client['address']}\", follow = false }}))")
+                    break
+
+
+def apply_nautilus():
+    """GTK4 apps read gtk.css only at startup, and Nautilus keeps running in the
+    background after its windows close: restart it (reopening its windows) so
+    it uses the new colours. If it's copying files, wait until it's done."""
+    pid = nautilus_pid()
+    if not pid:
+        return
+    try:  # a waiter from a previous switch is no longer needed
+        with open(NAUTILUS_WAITER) as f:
+            os.kill(int(f.read().strip()), 15)
+    except (OSError, ValueError):
+        pass
+    if not nautilus_busy(pid):
+        restart_nautilus()
+        return
+    waiter = subprocess.Popen(
+        [sys.executable, "-c",
+         "import importlib.machinery as m, importlib.util as u, sys, time\n"
+         "l = m.SourceFileLoader('ts', sys.argv[1]); s = u.spec_from_loader('ts', l)\n"
+         "ts = u.module_from_spec(s); l.exec_module(ts)\n"
+         "while (pid := ts.nautilus_pid()) and ts.nautilus_busy(pid): time.sleep(5)\n"
+         "ts.restart_nautilus() if pid else None\n",
+         os.path.abspath(__file__)],
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(NAUTILUS_WAITER, "w") as f:
+        f.write(str(waiter.pid))
+
+
+ICON_BASE = os.path.join(HOME, ".icons/Caticons")
+USER_ICONS = os.path.join(HOME, ".local/share/icons")
+GTK3_SETTINGS = os.path.join(HOME, ".config/gtk-3.0/settings.ini")
+
+
+def recolour_png(data, mapping):
+    """Recolour an embedded PNG (some Caticons folders have one): each pixel is
+    shifted by the change of its nearest Catppuccin colour, keeping shading."""
+    import base64
+    import io
+    from PIL import Image
+    rgb = lambda c: tuple(int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    luma = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    pairs = [(rgb(k), rgb(v)) for k, v in mapping.items()]
+    img = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGBA")
+    cache = {}
+    pixels = []
+    for r, g, b, a in img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata():
+        if a == 0:
+            pixels.append((r, g, b, a))
+            continue
+        key = (r, g, b)
+        if key not in cache:
+            src, dst = min(pairs, key=lambda p: sum((x - y) ** 2 for x, y in zip(p[0], key)))
+            # The target colour, as bright or dark as the pixel is next to the
+            # Catppuccin colour it's closest to (keeps gradients and shading).
+            ratio = luma(key) / luma(src) if luma(src) else 0
+            cache[key] = tuple(max(0, min(255, round(d * ratio))) for d in dst)
+        pixels.append(cache[key] + (a,))
+    img.putdata(pixels)
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return base64.b64encode(out.getvalue()).decode()
+
+
+def build_icon_theme(name, mapping):
+    """Caticons-<theme>: Caticons' folder ("places") icons recoloured with the
+    theme's icons.json; everything else falls back to Caticons."""
+    target = os.path.join(USER_ICONS, name)
+    stamp = hashlib.sha1(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+    try:
+        with open(os.path.join(target, ".stamp")) as f:
+            if f.read() == stamp:
+                return
+    except OSError:
+        pass
+    shutil.rmtree(target, ignore_errors=True)
+    with open(os.path.join(ICON_BASE, "index.theme")) as f:
+        base = f.read()
+    sections = dict(re.findall(r"(?ms)^\[([^\]]+)\]\n(.*?)(?=^\[|\Z)", base))
+    dirs = [d for d in sections if d.endswith("/places")]
+    pattern = re.compile("|".join(re.escape(c) for c in mapping), re.IGNORECASE)
+    for d in dirs:
+        src, dst = os.path.join(ICON_BASE, d), os.path.join(target, d)
+        os.makedirs(dst, exist_ok=True)
+        for entry in os.scandir(src):
+            out = os.path.join(dst, entry.name)
+            if entry.is_symlink():
+                os.symlink(os.readlink(entry.path), out)
+            elif entry.name.endswith(".svg"):
+                with open(entry.path) as f:
+                    svg = f.read()
+                svg = pattern.sub(lambda m: mapping[m.group(0).lower()], svg)
+                svg = re.sub(r"(data:image/png;base64,)([A-Za-z0-9+/=]+)",
+                             lambda m: m.group(1) + recolour_png(m.group(2), mapping), svg)
+                with open(out, "w") as f:
+                    f.write(svg)
+    index = [f"[Icon Theme]\nName={name}\nComment=Caticons with theme-coloured folders (theme-set)\n"
+             f"Inherits=Caticons\nDirectories={','.join(dirs)}\n"]
+    index += [f"[{d}]\n{sections[d].strip()}\n" for d in dirs]
+    with open(os.path.join(target, "index.theme"), "w") as f:
+        f.write("\n".join(index))
+    with open(os.path.join(target, ".stamp"), "w") as f:
+        f.write(stamp)
+
+
+def apply_icons(theme):
+    """Folder icons in the theme's colours. GTK apps (Nautilus included)
+    switch icon themes live."""
+    name = "Caticons"
+    try:
+        with open(os.path.join(THEMES, theme, "icons.json")) as f:
+            mapping = {k.lower(): v for k, v in json.load(f).items()}
+        name = f"Caticons-{theme}"
+        build_icon_theme(name, mapping)
+    except FileNotFoundError:
+        pass
+    run("gsettings", "set", "org.gnome.desktop.interface", "icon-theme", name)
+    try:
+        with open(GTK3_SETTINGS) as f:
+            ini = f.read()
+        new = re.sub(r"(?m)^gtk-icon-theme-name=.*$", f"gtk-icon-theme-name={name}", ini)
+        if new != ini:
+            with open(GTK3_SETTINGS, "w") as f:
+                f.write(new)
+    except OSError:
+        pass
+
+
+def apply_starship():
+    """~/.local/state/theme/starship.toml: your starship.toml with the theme's palette."""
+    with open(STARSHIP_BASE) as f:
+        base = f.read()
+    with open(os.path.join(CURRENT, "starship.toml")) as f:
+        palette = f.read()
+    base = re.sub(r'(?m)^palette\s*=.*$', 'palette = "theme"', base)
+    with open(os.path.join(STATE, "starship.toml"), "w") as f:
+        f.write(base.rstrip("\n") + "\n\n" + palette)
+
+
+def apply_fish(theme, meta):
+    """Pick the fish theme; running shells reload via an --on-variable handler."""
+    name = meta.get("fish", "")
+    if name == "generate":
+        os.makedirs(FISH_THEMES, exist_ok=True)
+        with open(os.path.join(THEMES, theme, "fish.theme")) as f:
+            text = f.read()
+        with open(os.path.join(FISH_THEMES, "theme-switcher.theme"), "w") as f:
+            f.write(text)
+        name = "theme-switcher"
+    def quote(text):  # fish single quotes: only \\ and \' are special
+        return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    script = (f"set -U __theme_fish {quote(name)}; "
+              f"set -U __theme_bat {quote(meta.get('bat', ''))}; "
+              f"set -U __theme_generation {time.time_ns()}")
+    # Plain `fish -c`: with --no-config, fish doesn't save universal variables.
+    run("fish", "-c", script)
+
+
+def apply_tmux():
+    if run("tmux", "list-sessions") and run("tmux", "list-sessions").returncode == 0:
+        run("tmux", "source-file", os.path.join(HOME, ".tmux.conf"))
+
+
+def signal_apps():
+    # kitty: just the colours, over its remote-control sockets (kitty.conf), so
+    # programs running in it don't redraw. Kitty instances without a socket
+    # (opened before remote control was set up) get the old SIGUSR1 config
+    # reload instead, until they're reopened.
+    colours = os.path.join(CURRENT, "kitty.conf")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    with_socket = set()
+    for name in os.listdir(runtime):
+        if name.startswith("kitty-") and name[6:].isdigit():
+            r = run("kitty", "@", "--to", f"unix:{os.path.join(runtime, name)}",
+                    "set-colors", "--all", "--configured", colours)
+            if r and r.returncode == 0:
+                with_socket.add(int(name[6:]))
+    r = run("pgrep", "-x", "kitty")
+    for pid in (int(p) for p in (r.stdout.split() if r else [])):
+        if pid not in with_socket:
+            try:
+                os.kill(pid, signal.SIGUSR1)
+            except OSError:
+                pass
+    run("pkill", "-USR1", "-x", "nvim")    # Neovim: see lua/plugins/colorscheme.lua
+    try:  # backdrop behind the bar (by pidfile: pkill -f would hit anything mentioning it)
+        with open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "bar-backdrop.pid")) as f:
+            os.kill(int(f.read().strip()), signal.SIGUSR1)
+    except (OSError, ValueError):
+        pass
+
+
+def wait_for_notifications(seconds=8):
+    """HyprPanel is also the notification server: wait for it after a restart."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        r = run("gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                "--object-path", "/org/freedesktop/Notifications",
+                "--method", "org.freedesktop.Notifications.GetServerInformation")
+        if r and r.returncode == 0:
+            time.sleep(0.5)  # let its popup window settle
+            return
+        time.sleep(0.2)
+
+
+def notify(meta, restarted=False):
+    if restarted:
+        wait_for_notifications()
+    run("notify-send", "-a", "Theme", "Theme", meta["name"])
+
+
+# --- main ------------------------------------------------------------------
+
+def apply(theme, quiet=False):
+    meta = load_toml(os.path.join(THEMES, theme, "theme.toml"))
+    os.makedirs(STATE, exist_ok=True)
+    relink(CURRENT, os.path.join(THEMES, theme))
+    with open(os.path.join(STATE, "name"), "w") as f:
+        f.write(theme + "\n")
+
+    background = pick_background(theme, meta)
+    if background:
+        set_background(theme, background, meta)
+    apply_hyprland()
+    colours, restarted = apply_hyprpanel(meta)
+    network_icons(colours)
+    apply_gtk4(theme, meta)
+    apply_icons(theme)
+    apply_nautilus()
+    apply_starship()
+    apply_fish(theme, meta)
+    apply_tmux()
+    signal_apps()
+    if not quiet:
+        notify(meta, restarted)
+    if not background:
+        run("notify-send", "-a", "Theme", "Theme",
+            f"No wallpapers for {meta['name']}: run theme-install-backgrounds")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if args[0] == "--list":
+        cur = current_theme()
+        for t in themes():
+            print(("* " if t == cur else "  ") + t)
+        return 0
+
+    os.makedirs(STATE, exist_ok=True)
+    with open(os.path.join(STATE, ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if args[0] == "--background" and len(args) == 2:
+            theme = current_theme()
+            meta = load_toml(os.path.join(THEMES, theme, "theme.toml"))
+            set_background(theme, os.path.abspath(os.path.expanduser(args[1])), meta)
+            return 0
+        if args[0] == "--reapply":
+            apply(current_theme() or "default", quiet=True)
+            return 0
+        theme = args[0]
+        if theme not in themes():
+            print(f"unknown theme: {theme} (have: {', '.join(themes())})", file=sys.stderr)
+            return 1
+        apply(theme)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

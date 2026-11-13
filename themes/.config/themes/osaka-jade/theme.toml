@@ -1,0 +1,30 @@
+name = "Osaka Jade"
+generate = true
+# HyprPanel has no Osaka Jade theme: theme-generate makes hyprpanel.json from
+# its Catppuccin Mocha theme, recoloured with this palette.
+hyprpanel = "generate"
+nvim_colorscheme = "bamboo"
+lualine = "auto"
+fish = "generate"
+bat = "ansi"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/osaka-jade/backgrounds"
+
+# One colour for the whole bar (and folder icons): every Catppuccin accent
+# colour HyprPanel uses becomes light jade. Keys are Catppuccin colour names,
+# values palette roles.
+[hyprpanel_roles]
+rosewater = "bright_green"
+flamingo = "bright_green"
+pink = "bright_green"
+mauve = "bright_green"
+red = "bright_green"
+maroon = "bright_green"
+peach = "bright_green"
+yellow = "bright_green"
+green = "bright_green"
+teal = "bright_green"
+sky = "bright_green"
+sapphire = "bright_green"
+blue = "bright_green"
+lavender = "bright_green"

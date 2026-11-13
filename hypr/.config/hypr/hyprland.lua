@@ -7,6 +7,8 @@
 -- Wiki: https://wiki.hypr.land/Configuring/Start/
 
 -- ------ Import Rosé Pine colors ------ --
+-- Fallback colours only: the theme in ~/.local/state/theme/current overrides
+-- them at the end of this file (switch themes with SUPER+CTRL+T / theme-set).
 local rp = require("rose-pine")
 
 
@@ -106,6 +108,9 @@ local menu        = "rofi -show drun -scroll-method 0 -terminal kitty -theme ~/.
 -- See https://wiki.hypr.land/Configuring/Basics/Autostart/
 -- This replaces exec-once.
 hl.on("hyprland.start", function()
+    -- Backdrop behind the transparent bar while an app fills the screen. Started
+    -- before HyprPanel: of two surfaces in the same layer, the later one is on top.
+    hl.exec_cmd("~/.scripts/bar-backdrop.py")
     hl.exec_cmd("hyprpanel")
     hl.exec_cmd("hyprpaper")
     hl.exec_cmd("hypridle")
@@ -205,12 +210,27 @@ hl.window_rule({
     match       = { float = false, workspace = "w[tv1]" },
     border_size = 0,
     rounding    = 0,
+    -- No shadow either: it darkened the edge under the bar (bar-backdrop.py)
+    no_shadow   = true,
 })
 hl.window_rule({
     name        = "no-gaps-f1",
     match       = { float = false, workspace = "f[1]" },
     border_size = 0,
     rounding    = 0,
+    -- No shadow either: it darkened the edge under the bar (bar-backdrop.py)
+    no_shadow   = true,
+})
+
+-- Bar backdrop (bar-backdrop.py): blur the wallpaper behind it exactly like
+-- behind a translucent window (xray: wallpaper only, as windows' blur sees it),
+-- so its colour matches the window under it; nothing while hidden (alpha 0).
+hl.layer_rule({
+    name         = "bar-backdrop",
+    match        = { namespace = "^(bar-backdrop)$" },
+    blur         = true,
+    xray         = true,
+    ignore_alpha = 0.01,
 })
 
 -- See https://wiki.hypr.land/Configuring/Layouts/Dwindle-Layout/ for more
@@ -292,6 +312,12 @@ hl.bind(mainMod .. " + R", hl.dsp.exec_cmd(menu))
 -- Pseudo-tiling moved from SUPER+P to SUPER+SHIFT+P to make room.
 hl.bind(mainMod .. " + P", toggle_display_mode)
 hl.bind(mainMod .. " + SHIFT + P", hl.dsp.window.pseudo())
+
+-- Themes, like Omarchy: theme picker and wallpaper picker (~/.scripts/theme-menu.py)
+hl.bind(mainMod .. " + CTRL + T",             hl.dsp.exec_cmd("~/.scripts/theme-menu.py"))
+hl.bind(mainMod .. " + SHIFT + CTRL + SPACE", hl.dsp.exec_cmd("~/.scripts/theme-menu.py"))
+hl.bind(mainMod .. " + CTRL + SPACE",         hl.dsp.exec_cmd("~/.scripts/theme-menu.py --backgrounds"))
+hl.bind(mainMod .. " + CTRL + W",             hl.dsp.exec_cmd("~/.scripts/theme-menu.py --backgrounds"))
 hl.bind(mainMod .. " + G", hl.dsp.layout("swapsplit")) -- dwindle
 
 -- ADDED BINDS
@@ -406,3 +432,17 @@ hl.window_rule({
 hl.window_rule({ name = "nautilus-opacity", match = { class = "^(org.gnome.Nautilus)$" }, opacity = "0.97 0.97" })
 hl.window_rule({ name = "spotify-opacity",  match = { class = "^(Spotify.*)$" },          opacity = "0.95 0.95" })
 hl.window_rule({ name = "obsidian-opacity", match = { class = "^(obsidian.*)$" },         opacity = "0.95 0.95" })
+
+
+---------------
+---- THEME ----
+---------------
+
+-- Window borders and background colour from the current theme (theme-set
+-- applies it live with `hyprctl eval`). Skipped if no theme has been set.
+local theme_colors = os.getenv("HOME") .. "/.local/state/theme/current/hyprland.lua"
+local theme_file = io.open(theme_colors)
+if theme_file then
+    theme_file:close()
+    dofile(theme_colors)
+end

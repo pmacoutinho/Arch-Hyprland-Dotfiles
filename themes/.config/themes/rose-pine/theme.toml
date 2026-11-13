@@ -1,0 +1,9 @@
+name = "Rosé Pine"
+generate = true
+hyprpanel = "rose_pine"
+nvim_colorscheme = "rose-pine-main"
+lualine = "auto"
+fish = "Rosé Pine"
+bat = "ansi"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/rose-pine/backgrounds"

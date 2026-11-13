@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""git clean filter for hyprpanel/.config/hyprpanel/config.json.
+
+theme-set writes the current theme's colours into HyprPanel's config.json,
+which lives in the dotfiles repo. This filter drops those colour keys (every
+key any HyprPanel theme file sets, except buttons.style) when git reads the file,
+so switching themes doesn't show up as a change and the repo keeps your own
+settings only (HyprPanel's defaults are the Default theme's colours).
+
+Set up once per clone (the .gitattributes line is in the repo):
+    git config filter.hyprpanel-theme.clean ~/.scripts/hyprpanel-config-clean
+Reads stdin, writes stdout; passes anything it can't parse through unchanged.
+"""
+import json
+import os
+import sys
+
+THEMES = "/usr/share/hyprpanel/themes"
+
+
+def main():
+    raw = sys.stdin.read()
+    try:
+        config = json.loads(raw)
+        theme_keys = set()
+        for name in os.listdir(THEMES):
+            if name.endswith(".json"):
+                with open(os.path.join(THEMES, name)) as f:
+                    theme_keys |= set(json.load(f))
+        theme_keys.discard("theme.bar.buttons.style")
+    except (ValueError, OSError):
+        sys.stdout.write(raw)
+        return
+    kept = {k: v for k, v in config.items() if k not in theme_keys}
+    # Same layout HyprPanel writes: 2-space indent, no trailing newline.
+    sys.stdout.write(json.dumps(kept, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
