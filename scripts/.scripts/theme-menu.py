@@ -37,18 +37,22 @@ CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache
 PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "theme-menu.pid")
 IMAGE_EXT = (".png", ".jpg", ".jpeg")
 
-# Omarchy's geometry.
-EXPANDED_W, EXPANDED_H = 768, 475
-SLICE_W, SLICE_H = 108, 432
-SLICE_SPACING = -30
-SKEW = 28
+# Omarchy's carousel, made smaller and rounded to match HyprPanel.
+EXPANDED_W, EXPANDED_H = 560, 340
+SLICE_W, SLICE_H = 52, 290
+SLICE_SPACING = 10
 STEP = SLICE_W + SLICE_SPACING
-TOP_MARGIN = 30
-LABEL_GAP = 16
-LABEL_SIZE = 28
-FILTER_SIZE = 18
+SIDE = 6               # slices shown on each side; they fade out towards the ends
+RADIUS = 14            # preview corners (slices: SLICE_RADIUS)
+SLICE_RADIUS = 12
+TOP_MARGIN = 0
+LABEL_GAP = 14
+LABEL_SIZE = 15
+FILTER_SIZE = 13
+PILL_PAD_X, PILL_PAD_Y = 16, 7
 BORDER = 2
-UNSELECTED_DIM = 0.42
+UNSELECTED_DIM = 0.45
+FONT = "sans Medium"
 
 
 # --- data ------------------------------------------------------------------
@@ -226,9 +230,9 @@ class Picker(Gtk.Window):
 
     def targets(self, width, height):
         """Target rect (x, y, w, h) of every visible item, and the card rect."""
-        carousel_w = EXPANDED_W + 13 * STEP
+        carousel_w = EXPANDED_W + 2 * (SIDE * STEP + SLICE_SPACING)
         card_w = min(width - 80, carousel_w + 40)
-        bottom = LABEL_GAP + LABEL_SIZE + 30 + (FILTER_SIZE + 8 if self.filter else 0)
+        bottom = LABEL_GAP + LABEL_SIZE + 2 * PILL_PAD_Y + (FILTER_SIZE + 2 * PILL_PAD_Y + 8 if self.filter else 0)
         card_h = TOP_MARGIN + EXPANDED_H + bottom
         card_x, card_y = (width - card_w) / 2, (height - card_h) / 2
         preview_x = (width - EXPANDED_W) / 2
@@ -269,20 +273,28 @@ class Picker(Gtk.Window):
     # drawing
 
     @staticmethod
-    def shape(cr, x, y, w, h):
+    def shape(cr, x, y, w, h, r):
+        r = min(r, w / 2, h / 2)
         cr.new_path()
-        cr.move_to(x + SKEW, y)
-        cr.line_to(x + w, y)
-        cr.line_to(x + w - SKEW, y + h)
-        cr.line_to(x, y + h)
+        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
         cr.close_path()
 
-    def draw_item(self, cr, item, selected):
+    def fade(self, n):
+        """Slices fade out towards the ends of the carousel."""
+        d = abs(n - self.selected)
+        return 1.0 if d <= SIDE - 2 else max(0.0, 1 - (d - SIDE + 2) / 3)
+
+    def draw_item(self, cr, item, selected, alpha):
         x, y, w, h = item["rect"]
-        dim, (sr, sg, sb), (ur, ug, ub) = (
-            self.colours["dim"], self.colours["selected"], self.colours["unselected"])
+        # Animated: the corners follow the size between slice and preview.
+        r = SLICE_RADIUS + (RADIUS - SLICE_RADIUS) * max(0.0, min(1.0, (w - SLICE_W) / (EXPANDED_W - SLICE_W)))
+        dim, sel = self.colours["dim"], self.colours["selected"]
+        cr.push_group()
         cr.save()
-        self.shape(cr, x, y, w, h)
+        self.shape(cr, x, y, w, h, r)
         cr.clip()
         pix = item["pixbuf"]
         if pix:
@@ -297,28 +309,38 @@ class Picker(Gtk.Window):
             cr.set_source_rgba(*dim, UNSELECTED_DIM)
             cr.paint()
         cr.restore()
-        self.shape(cr, x, y, w, h)
-        cr.set_line_width(BORDER)
-        cr.set_source_rgb(*((sr, sg, sb) if selected else (ur, ug, ub)))
-        cr.stroke()
+        if selected:
+            # Border inside the edge, so it doesn't grow the rounded shape.
+            i = BORDER / 2
+            self.shape(cr, x + i, y + i, w - BORDER, h - BORDER, r - i)
+            cr.set_line_width(BORDER)
+            cr.set_source_rgb(*sel)
+            cr.stroke()
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(alpha)
 
     def draw_text(self, cr, text, size, y, alpha=1.0):
+        """Text in a rounded pill of the theme background (like HyprPanel's
+        bar buttons); returns the pill height."""
         layout = PangoCairo.create_layout(cr)
-        font = Pango.FontDescription.from_string(f"sans Semi-Bold {size}px")
+        font = Pango.FontDescription.from_string(FONT)
         font.set_absolute_size(size * Pango.SCALE)
         layout.set_font_description(font)
         layout.set_text(text, -1)
-        layout.set_width(EXPANDED_W * Pango.SCALE)
+        layout.set_width((EXPANDED_W - 2 * PILL_PAD_X) * Pango.SCALE)
         layout.set_ellipsize(Pango.EllipsizeMode.END)
-        layout.set_alignment(Pango.Alignment.CENTER)
+        _, logical = layout.get_pixel_extents()
+        tw, th = logical.width, logical.height
+        pw, ph = tw + 2 * PILL_PAD_X, th + 2 * PILL_PAD_Y
         alloc = self.get_allocation()
-        cr.move_to((alloc.width - EXPANDED_W) / 2, y)
-        PangoCairo.layout_path(cr, layout)
-        cr.set_source_rgba(*self.colours["dim"], 0.7)
-        cr.set_line_width(4)
-        cr.stroke_preserve()
-        cr.set_source_rgba(*self.colours["text"], alpha)
+        px = (alloc.width - pw) / 2
+        self.shape(cr, px, y, pw, ph, ph / 2)
+        cr.set_source_rgba(*self.colours["dim"], 0.9 * alpha)
         cr.fill()
+        cr.move_to(px + PILL_PAD_X - logical.x, y + PILL_PAD_Y)
+        cr.set_source_rgba(*self.colours["text"], alpha)
+        PangoCairo.show_layout(cr, layout)
+        return ph
 
     def on_draw(self, widget, cr):
         self._drawn = True
@@ -330,13 +352,14 @@ class Picker(Gtk.Window):
         order = sorted(range(len(self.visible_items)), key=lambda n: -abs(n - self.selected))
         for n in order:
             item = self.visible_items[n]
-            if item["rect"]:
-                self.draw_item(cr, item, n == self.selected)
+            alpha = self.fade(n)
+            if item["rect"] and alpha > 0:
+                self.draw_item(cr, item, n == self.selected, alpha)
         card_x, card_y, card_w, card_h = self.card
         label_y = card_y + TOP_MARGIN + EXPANDED_H + LABEL_GAP
-        self.draw_text(cr, self.visible_items[self.selected]["label"], LABEL_SIZE, label_y)
+        ph = self.draw_text(cr, self.visible_items[self.selected]["label"], LABEL_SIZE, label_y)
         if self.filter:
-            self.draw_text(cr, self.filter, FILTER_SIZE, label_y + LABEL_SIZE + 14, 0.85)
+            self.draw_text(cr, f"/ {self.filter}", FILTER_SIZE, label_y + ph + 8, 0.85)
 
     # input
 
@@ -412,10 +435,8 @@ class Picker(Gtk.Window):
             if not rect:
                 continue
             x, y, w, h = rect
-            if y <= event.y <= y + h:
-                # Inside the parallelogram: shift the left edge by the skew at this height.
-                offset = SKEW * (1 - (event.y - y) / h)
-                if x + offset <= event.x <= x + w - SKEW + offset:
+            if self.fade(n) > 0 and y <= event.y <= y + h:
+                if x <= event.x <= x + w:
                     if n == self.selected:
                         self.pick()
                     else:
