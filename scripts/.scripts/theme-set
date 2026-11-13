@@ -517,28 +517,9 @@ def signal_apps():
         pass
 
 
-def wait_for_notifications(seconds=8):
-    """HyprPanel is also the notification server: wait for it after a restart."""
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        r = run("gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
-                "--object-path", "/org/freedesktop/Notifications",
-                "--method", "org.freedesktop.Notifications.GetServerInformation")
-        if r and r.returncode == 0:
-            time.sleep(0.5)  # let its popup window settle
-            return
-        time.sleep(0.2)
-
-
-def notify(meta, restarted=False):
-    if restarted:
-        wait_for_notifications()
-    run("notify-send", "-a", "Theme", "Theme", meta["name"])
-
-
 # --- main ------------------------------------------------------------------
 
-def apply(theme, quiet=False):
+def apply(theme):
     meta = load_toml(os.path.join(THEMES, theme, "theme.toml"))
     os.makedirs(STATE, exist_ok=True)
     relink(CURRENT, os.path.join(THEMES, theme))
@@ -549,7 +530,7 @@ def apply(theme, quiet=False):
     if background:
         set_background(theme, background, meta)
     apply_hyprland()
-    colours, restarted = apply_hyprpanel(meta)
+    colours, _ = apply_hyprpanel(meta)
     network_icons(colours)
     apply_gtk4(theme, meta)
     apply_icons(theme)
@@ -558,8 +539,6 @@ def apply(theme, quiet=False):
     apply_fish(theme, meta)
     apply_tmux()
     signal_apps()
-    if not quiet:
-        notify(meta, restarted)
     if not background:
         run("notify-send", "-a", "Theme", "Theme",
             f"No wallpapers for {meta['name']}: run theme-install-backgrounds")
@@ -585,7 +564,7 @@ def main():
             set_background(theme, os.path.abspath(os.path.expanduser(args[1])), meta)
             return 0
         if args[0] == "--reapply":
-            apply(current_theme() or "default", quiet=True)
+            apply(current_theme() or "default")
             return 0
         theme = args[0]
         if theme not in themes():
