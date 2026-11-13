@@ -83,13 +83,16 @@ local function toggle_display_mode()
         hl.dispatch(hl.dsp.exec_cmd("bash ~/.scripts/display-mode-refresh.sh"))
     end, { timeout = 600, type = "oneshot" })
 end
+-- Also for scripts: hyprctl eval 'toggle_display_mode()'
+_G.toggle_display_mode = toggle_display_mode
 
 -- An output that is a mirror from the moment it appears is never announced to
 -- apps (no wl_output), so when it's later extended HyprPanel, hyprpaper etc.
 -- can't put anything on it. One that was a normal screen first stays known
 -- through mirroring. So new outputs (login, hotplug) start as normal screens
--- and are mirrored half a second later. (display-mode-refresh.sh still
--- switches an extended screen off and on if it got no bar.)
+-- and are mirrored half a second later. (A HyprPanel restarted while a
+-- screen is mirrored, e.g. by theme-set, still won't add its bar when it's
+-- extended: display-mode-refresh.sh then restarts HyprPanel.)
 hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
 hl.on("monitor.added", function()
     hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })

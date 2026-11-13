@@ -230,7 +230,10 @@ class Backdrop:
         self.pending = False
         monitors = hyprctl("monitors") or []
         clients = hyprctl("clients") or []
-        if {m["name"] for m in monitors if m.get("reserved", [0, 0])[1] > 0} - set(self.strips):
+        # Strips only where a bar reserves space: a screen that lost its bar
+        # (e.g. extended while HyprPanel didn't know it) must lose its strip
+        # too, or the strip covers the top of its windows.
+        if {m["name"] for m in monitors if m.get("reserved", [0, 0])[1] > 0} != set(self.strips):
             self.rebuild()
             return False
         for m in monitors:

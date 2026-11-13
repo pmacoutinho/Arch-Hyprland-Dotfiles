@@ -6,17 +6,18 @@
 sh ~/.scripts/toggleHyprsunset.sh --refresh
 
 # An extended screen should get its HyprPanel bar by itself (hyprland.lua makes
-# sure apps know every screen). If one still has none after ~2s, the screen
-# isn't known to apps (it was a mirror from the start): switch it off and on
-# again so Hyprland announces it, and HyprPanel adds the bar. That blanks it
-# for a second, so it's only the fallback.
+# sure apps know every screen). But a HyprPanel started while the screen was a
+# mirror (e.g. restarted by theme-set) never puts a bar on it, while newly
+# started apps do see it once it's extended. So if an extended screen still
+# has no bar after ~2s, restart HyprPanel (the bars blink for a second).
 bar_less() {
     local layers
     layers=$(hyprctl layers -j)
     for mon in $(hyprctl monitors all -j | jq -r '.[] | select(.mirrorOf == "none" and (.disabled | not)) | .name'); do
         # skip headless/virtual outputs (e.g. "tab")
         [[ $mon == HEADLESS* || $mon == tab ]] && continue
-        jq -e --arg m "$mon" '[.[$m].levels[]?[]? | select(.namespace | startswith("bar-"))] | length > 0' \
+        # HyprPanel's bars are bar-0, bar-1…; bar-backdrop is ours, not a bar.
+        jq -e --arg m "$mon" '[.[$m].levels[]?[]? | select(.namespace | test("^bar-[0-9]+$"))] | length > 0' \
             <<<"$layers" >/dev/null || echo "$mon"
     done
 }
@@ -28,8 +29,5 @@ for _ in 1 2 3 4; do
     sleep 0.5
 done
 
-for mon in $(bar_less); do
-    hyprctl eval "hl.monitor({ output = \"$mon\", disabled = true })" >/dev/null
-    sleep 0.4
-    hyprctl eval "hl.monitor({ output = \"$mon\", mode = \"1920x1080@144\", position = \"auto-right\", scale = 1, mirror = \"\", disabled = false })" >/dev/null
-done
+~/.scripts/hyprpanel-quit  # (waits until it has quit)
+hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null
