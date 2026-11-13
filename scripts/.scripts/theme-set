@@ -19,6 +19,10 @@ and `background` to its wallpaper; apps read their colours through these:
     fish, starship    ~/.config/fish/config.fish (universal variables)
     Nautilus (GTK4)   ~/.config/gtk-4.0/gtk.css (restarted, windows reopened)
     folder icons      a Caticons-<theme> icon theme from icons.json
+    light/dark        gsettings color-scheme, from colors.toml's mode
+    Obsidian          a CSS snippet in each vault, from obsidian.css
+    Claude Code       custom theme ~/.claude/themes/desktop.json, from claude.json
+    Firefox nightTab  the profile's userContent.css, from nighttab.css (next start)
     HyprPanel         theme colours merged into ~/.config/hyprpanel/config.json
 Running apps are told to reload; everything else picks it up on next start.
 """
@@ -295,38 +299,45 @@ def nautilus_windows():
     return windows
 
 
+def open_nautilus_window(uri, workspace, known):
+    """Open a Nautilus window on a folder, straight onto its workspace without
+    going there (a temporary Hyprland rule: launch rules don't work here, the
+    windows belong to Nautilus's own process, not the one launched). Returns
+    once the window has appeared; known holds the addresses seen so far."""
+    if workspace:
+        run("hyprctl", "eval",
+            '_G.theme_set_nautilus = hl.window_rule({ name = "theme-set-nautilus", '
+            'match = { class = "^(org.gnome.Nautilus)$" }, '
+            f'workspace = {json.dumps(workspace + " silent")} }})')
+    try:
+        subprocess.Popen(["nautilus", "--new-window", uri], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            time.sleep(0.15)
+            new = {c["address"] for c in nautilus_clients()} - known
+            if new:
+                known.update(new)
+                return
+    finally:
+        if workspace:
+            run("hyprctl", "eval",
+                "if _G.theme_set_nautilus then _G.theme_set_nautilus:set_enabled(false) end")
+
+
 def restart_nautilus():
     """Quit Nautilus and reopen its windows (current folder of each) on their
-    workspaces, so open windows come back in the new theme."""
+    workspaces, so open windows come back in the new theme. One at a time, so
+    each lands on its own workspace."""
     windows = nautilus_windows()
     run("nautilus", "-q")
     for _ in range(50):
         if not nautilus_pid():
             break
         time.sleep(0.1)
-    if not windows:
-        return
-    existing = {c["address"] for c in nautilus_clients()}
-    for uri, _ in windows:
-        subprocess.Popen(["nautilus", "--new-window", uri], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Then put each window back on its workspace (launch rules don't work here:
-    # the windows belong to Nautilus's own process, not the one launched).
-    deadline = time.monotonic() + 8
-    pending = [(uri, ws) for uri, ws in windows if ws]
-    while pending and time.monotonic() < deadline:
-        time.sleep(0.3)
-        for client in nautilus_clients():
-            if client["address"] in existing:
-                continue
-            for item in pending:
-                if client["title"] == folder_title(item[0]):
-                    existing.add(client["address"])
-                    pending.remove(item)
-                    if client["workspace"]["name"] != item[1]:
-                        run("hyprctl", "eval", "hl.dispatch(hl.dsp.window.move({ workspace = "
-                            f"{json.dumps(item[1])}, window = \"address:{client['address']}\", follow = false }}))")
-                    break
+    known = {c["address"] for c in nautilus_clients()}
+    for uri, workspace in windows:
+        open_nautilus_window(uri, workspace, known)
 
 
 def apply_nautilus():
@@ -456,6 +467,190 @@ def apply_icons(theme):
         pass
 
 
+def apply_color_scheme(theme):
+    """Light or dark, from colors.toml's mode: libadwaita apps, the portal
+    (browsers' prefers-color-scheme) and GTK3's dark-theme preference. The
+    GTK3 theme itself (Catppuccin Mocha) has no light variant installed."""
+    mode = load_toml(os.path.join(THEMES, theme, "colors.toml")).get("mode", "dark")
+    light = mode == "light"
+    run("gsettings", "set", "org.gnome.desktop.interface", "color-scheme",
+        "prefer-light" if light else "prefer-dark")
+    try:
+        with open(GTK3_SETTINGS) as f:
+            ini = f.read()
+        new = re.sub(r"(?m)^gtk-application-prefer-dark-theme=.*$",
+                     f"gtk-application-prefer-dark-theme={0 if light else 1}", ini)
+        if new != ini:
+            with open(GTK3_SETTINGS, "w") as f:
+                f.write(new)
+    except OSError:
+        pass
+
+
+OBSIDIAN_CONFIGS = [os.path.join(HOME, ".config/obsidian/obsidian.json"),
+                    os.path.join(HOME, ".var/app/md.obsidian.Obsidian/config/obsidian/obsidian.json")]
+OBSIDIAN_SNIPPET = "desktop-theme"
+
+
+def obsidian_vaults():
+    vaults = []
+    for config in OBSIDIAN_CONFIGS:
+        try:
+            with open(config) as f:
+                vaults += [v["path"] for v in json.load(f).get("vaults", {}).values()]
+        except (OSError, ValueError, KeyError):
+            pass
+    return [v for v in vaults if os.path.isdir(os.path.join(v, ".obsidian"))]
+
+
+def apply_obsidian(theme):
+    """Each Obsidian vault gets the theme's obsidian.css as the CSS snippet
+    "desktop-theme" (it recolours Obsidian's Catppuccin theme; Obsidian reloads
+    snippets when they change). A theme without one (Catppuccin, Default)
+    leaves the Catppuccin theme as it is. The first run also enables the
+    snippet and sets the base colour scheme to follow the system (light for
+    Snow), and, for a vault in git, keeps the snippet out of it (it's
+    per-machine)."""
+    try:
+        with open(os.path.join(THEMES, theme, "obsidian.css")) as f:
+            css = f.read()
+    except FileNotFoundError:
+        css = "/* theme-set: this theme leaves Obsidian's theme as it is. */\n"
+    for vault in obsidian_vaults():
+        config = os.path.join(vault, ".obsidian")
+        snippets = os.path.join(config, "snippets")
+        os.makedirs(snippets, exist_ok=True)
+        path = os.path.join(snippets, OBSIDIAN_SNIPPET + ".css")
+        try:
+            with open(path) as f:
+                same = f.read() == css
+        except OSError:
+            same = False
+        if not same:
+            with open(path, "w") as f:
+                f.write(css)
+
+        appearance_path = os.path.join(config, "appearance.json")
+        try:
+            with open(appearance_path) as f:
+                appearance = json.load(f)
+        except (OSError, ValueError):
+            appearance = {}
+        changed = dict(appearance)
+        enabled = changed.get("enabledCssSnippets", [])
+        if OBSIDIAN_SNIPPET not in enabled:
+            changed["enabledCssSnippets"] = enabled + [OBSIDIAN_SNIPPET]
+        changed["theme"] = "system"
+        if changed != appearance:
+            with open(appearance_path, "w") as f:
+                json.dump(changed, f, indent=2)
+
+        exclude = os.path.join(vault, ".git/info/exclude")
+        line = f"/.obsidian/snippets/{OBSIDIAN_SNIPPET}.css"
+        if os.path.isdir(os.path.dirname(exclude)):
+            try:
+                with open(exclude) as f:
+                    present = line in f.read().splitlines()
+            except OSError:
+                present = False
+            if not present:
+                with open(exclude, "a") as f:
+                    f.write(f"# Written by theme-set (dotfiles), per machine.\n{line}\n")
+
+
+CLAUDE_THEME = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", os.path.join(HOME, ".claude")),
+                            "themes", "desktop.json")
+
+
+def apply_claude(theme):
+    """Claude Code's custom theme "desktop" (select it once: /theme, or
+    "theme": "custom:desktop" in ~/.claude/settings.json): the theme's
+    claude.json, or Claude's own dark look for a theme without one (Default).
+    Claude Code reloads ~/.claude/themes/ live."""
+    try:
+        with open(os.path.join(THEMES, theme, "claude.json")) as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = json.dumps({"name": "Desktop (Claude's own)", "base": "dark"}, indent=2) + "\n"
+    os.makedirs(os.path.dirname(CLAUDE_THEME), exist_ok=True)
+    tmp = CLAUDE_THEME + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, CLAUDE_THEME)
+
+
+FIREFOX = os.path.join(HOME, ".mozilla/firefox")
+NIGHTTAB_ID = "{47bf427e-c83d-457d-9b3d-3db4118574bd}"
+
+
+def firefox_profiles():
+    try:
+        with open(os.path.join(FIREFOX, "profiles.ini")) as f:
+            ini = f.read()
+    except OSError:
+        return []
+    paths = []
+    for section in re.split(r"(?m)^\[", ini):
+        path = re.search(r"(?m)^Path=(.+)$", section)
+        if path:
+            relative = re.search(r"(?m)^IsRelative=1$", section)
+            paths.append(os.path.join(FIREFOX, path[1]) if relative else path[1])
+    return [p for p in paths if os.path.isfile(os.path.join(p, "prefs.js"))]
+
+
+def apply_firefox(theme):
+    """nightTab's new-tab page in the theme's colours (its nighttab.css), via
+    each Firefox profile's chrome/userContent.css. Firefox reads that at
+    startup, so the colours change the next time Firefox starts. The first
+    run also turns on userContent.css in user.js."""
+    try:
+        with open(os.path.join(THEMES, theme, "nighttab.css")) as f:
+            body = f.read()
+    except FileNotFoundError:
+        body = ""
+    for profile in firefox_profiles():
+        with open(os.path.join(profile, "prefs.js")) as f:
+            uuids = re.search(r'user_pref\("extensions\.webextensions\.uuids", "(.*)"\);', f.read())
+        try:
+            uuid = json.loads(json.loads(f'"{uuids[1]}"')).get(NIGHTTAB_ID) if uuids else None
+        except ValueError:
+            uuid = None
+        if uuid and body:
+            vars_ = "\n".join("        " + line for line in body.splitlines() if not line.startswith("/*"))
+            css = (f"/* theme-set ({theme}): nightTab in the theme's colours. */\n"
+                   f'@-moz-document url-prefix("moz-extension://{uuid}/") {{\n'
+                   f"    html {{\n{vars_}\n    }}\n}}\n")
+        else:
+            css = f"/* theme-set ({theme}): nothing to change. */\n"
+        chrome = os.path.join(profile, "chrome")
+        os.makedirs(chrome, exist_ok=True)
+        with open(os.path.join(chrome, "desktop-theme.css"), "w") as f:
+            f.write(css)
+
+        content = os.path.join(chrome, "userContent.css")
+        imp = '@import url("desktop-theme.css");'
+        try:
+            with open(content) as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = ""
+        if imp not in text:  # @import has to come first
+            with open(content, "w") as f:
+                f.write(f"{imp}  /* theme-set */\n{text}")
+
+        user_js = os.path.join(profile, "user.js")
+        pref = 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
+        try:
+            with open(user_js) as f:
+                text = f.read()
+        except FileNotFoundError:
+            text = ""
+        if pref not in text:
+            with open(user_js, "a") as f:
+                f.write(("\n" if text and not text.endswith("\n") else "")
+                        + "// theme-set: read chrome/userContent.css (nightTab colours).\n" + pref + "\n")
+
+
 def apply_starship():
     """~/.local/state/theme/starship.toml: your starship.toml with the theme's palette."""
     with open(STARSHIP_BASE) as f:
@@ -536,6 +731,10 @@ def apply(theme):
     colours, _ = apply_hyprpanel(meta)
     network_icons(colours)
     apply_gtk4(theme, meta)
+    apply_color_scheme(theme)
+    apply_obsidian(theme)
+    apply_claude(theme)
+    apply_firefox(theme)
     apply_icons(theme)
     apply_nautilus()
     apply_starship()

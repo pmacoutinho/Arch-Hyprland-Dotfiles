@@ -1,0 +1,13 @@
+name = "Snow"
+generate = true
+# HyprPanel has no Snow theme: theme-generate makes hyprpanel.json from its
+# Catppuccin Mocha theme, recoloured with this palette.
+hyprpanel = "generate"
+nvim_colorscheme = "snow"
+lualine = "auto"
+fish = "generate"
+bat = "ansi"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/snow/backgrounds"
+# Monochrome: listed at the end of the theme menu.
+last = true

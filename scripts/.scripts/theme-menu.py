@@ -118,9 +118,10 @@ def theme_items():
         except OSError:
             continue
         items.append({"label": meta.get("name", name), "image": theme_preview(name, meta),
-                      "value": name})
-    # Default first, the rest alphabetically, like Omarchy lists stock themes.
-    items.sort(key=lambda i: (i["value"] != "default", i["label"].lower()))
+                      "value": name, "last": meta.get("last", False)})
+    # Default first, the rest alphabetically, like Omarchy lists stock themes;
+    # themes marked `last = true` (the monochrome ones) at the end.
+    items.sort(key=lambda i: (i["value"] != "default", i["last"], i["label"].lower()))
     current = current_theme()
     selected = next((n for n, i in enumerate(items) if i["value"] == current), 0)
     return items, selected

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Install nightTab (github.com/zombieFox/nightTab, GPL-3.0) for nighttab-server:
+# the signed Firefox add-on file from addons.mozilla.org, pinned and checked,
+# unpacked into ~/.local/share/nighttab.
+set -eu
+VERSION=7.3.0
+URL=https://addons.mozilla.org/firefox/downloads/file/3848032/nighttab-7.3.0.xpi
+SHA256=ef53db7d9276a9f21533f8b21bc67114965c959802c0d2a92b8fce6cebed800d
+DEST="${XDG_DATA_HOME:-$HOME/.local/share}/nighttab"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL -o "$tmp/nighttab.xpi" "$URL"
+echo "$SHA256  $tmp/nighttab.xpi" | sha256sum -c --quiet
+unzip -q "$tmp/nighttab.xpi" -d "$tmp/files"
+rm -rf "$tmp/files/META-INF"
+rm -rf "$DEST"
+mv "$tmp/files" "$DEST"
+echo "nightTab $VERSION -> $DEST"

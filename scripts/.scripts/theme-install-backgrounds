@@ -1,6 +1,7 @@
 #!/bin/bash
 # Download the wallpapers for the themes in ~/.config/themes from Omarchy
-# (github.com/omacom/omarchy, MIT), pinned to one commit, into
+# (github.com/omacom/omarchy, MIT) or a community Omarchy theme's own repo,
+# pinned to one commit, into
 # ~/.local/share/themes/<theme>/backgrounds/. WebP files are converted to PNG
 # (GTK and hyprpaper here can't read WebP), and anything bigger than 4K is
 # scaled down to 3840x2160 (some are 8K). Already-present files are skipped.
@@ -12,26 +13,38 @@ OMARCHY_COMMIT=ac6cb9c712848741f994d7ecbaccdbab90b526e8
 BASE="https://raw.githubusercontent.com/omacom/omarchy/$OMARCHY_COMMIT/themes"
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/themes"
 
-# theme → "omarchy-theme-dir[@commit]: file …"
+# theme → "omarchy-theme-dir[@commit]: file …", or
+#         "owner/repo@commit[/dir]: file …" for a theme in a repo of its own
+#         (dir defaults to backgrounds; "." for the top, with files given as
+#         paths inside it)
 declare -A SOURCES=(
     [catppuccin]="catppuccin: 1-totoro.webp 2-waves.webp 3-blue-eye.webp"
     # Left out: Omarchy's AI-generated ones (liftoff, winding-road, quattro,
     # swirl-buck) and ones with Omarchy's logo or name (oma, oma-cityscape,
     # omarchy-plants).
     [tokyo-night]="tokyo-night: 4-sunset-lake.webp 5-omakub.webp"
-    [rose-pine]="rose-pine: 1-funky-shapes.webp 2-dot-map.webp"
+    # The official Rosé Pine collection (CC0).
+    [rose-pine]="rose-pine/wallpapers@ee39a37b24ab7700cc4d52f50b01a5d13df6a865/.: os/arch-btw-moon.png miscellaneous/chrome_angel(1).jpg miscellaneous/chrome_angel(2).jpg"
     [black-white]="vantablack: 0-dot-hands.webp 1-twisted-stairs.webp 2-layers-deep.webp 3-layers-stacked.webp"
     # Omarchy replaced Osaka Jade with Jade Horse; this is the last commit with it.
     [osaka-jade]="osaka-jade@32481c89ed70ced37a9f5b3c7bc48e8d867024cf: 1-glowing-city.webp 2-shaded-entrance.webp 3-mountain-moon.webp"
     [gruvbox]="gruvbox: 1-the-backwater.jpg 2-flower-basket.webp 3-village-square.jpg 4-idyllic-procession.jpg 5-leaves.jpg"
+    # Left out: omarchy (Omarchy's name).
+    [everforest]="everforest: 1-tree-tops.webp"
+    # Dracula's official set (MIT), the 8K ones; the rest of it (and the Omarchy
+    # theme's AI-generated forests) are 3440x1440 at most.
+    [dracula]="dracula/wallpaper@f2b8cc4223bcc2dfd5f165ab80f701bbb84e3303/first-collection: base.png arch.png"
+    # Left out: 3-dothash-light (a logo).
+    [snow]="bjarneo/omarchy-snow-theme@bfccca5bda969bc619af9db9f37da91e9fd52947: 1-christina-gottardi-unsplash.jpg 2-snow.jpg"
 )
 # Wallpapers you already have, linked in as well.
 declare -A LOCAL=(
     [gruvbox]="~/.config/wallpapers/dopesmoker_gruvbox.png"
+    [rose-pine]="~/.config/wallpapers/squiggly.png"
 )
 
 themes=("$@")
-[ ${#themes[@]} -eq 0 ] && themes=(catppuccin tokyo-night rose-pine black-white osaka-jade gruvbox)
+[ ${#themes[@]} -eq 0 ] && themes=(catppuccin tokyo-night rose-pine black-white osaka-jade gruvbox everforest dracula snow)
 
 failed=0
 for theme in "${themes[@]}"; do
@@ -54,20 +67,26 @@ for theme in "${themes[@]}"; do
             failed=1
         fi
     done
-    base=$BASE
-    if [[ $src == *@* ]]; then
-        base="https://raw.githubusercontent.com/omacom/omarchy/${src#*@}/themes"
-        src=${src%@*}
+    url="$BASE/$src/backgrounds"
+    if [[ $src == */* ]]; then
+        # A theme repo of its own: owner/repo@commit[/dir].
+        repo=${src%@*} rest=${src#*@}
+        dir=backgrounds
+        [[ $rest == */* ]] && dir=${rest#*/} rest=${rest%%/*}
+        url="https://raw.githubusercontent.com/$repo/$rest"
+        [ "$dir" = . ] || url="$url/$dir"
+    elif [[ $src == *@* ]]; then
+        url="https://raw.githubusercontent.com/omacom/omarchy/${src#*@}/themes/${src%@*}/backgrounds"
     fi
     for file in ${spec#*: }; do
-        name=${file%.*}
+        name=$(basename "${file%.*}")
         target="$out/$name.png"
-        [ "${file##*.}" = jpg ] && target="$out/$file"
+        [ "${file##*.}" = jpg ] && target="$out/$(basename "$file")"
         if [ -s "$target" ]; then
             continue
         fi
         tmp=$(mktemp --suffix=".${file##*.}")
-        if curl -fsSL --retry 2 -o "$tmp" "$base/$src/backgrounds/$file"; then
+        if curl -fsSL --retry 2 -o "$tmp" "$url/$file"; then
             # Shrink to cover 3840x2160 at most (never enlarge).
             magick "$tmp" -resize '3840x2160^>' "$target" || failed=1
             echo "$theme: $(basename "$target")"

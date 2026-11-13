@@ -1,0 +1,9 @@
+[Unit]
+Description=nightTab new-tab page in the current desktop theme (127.0.0.1:47321)
+
+[Service]
+ExecStart=%h/.scripts/nighttab-server 47321
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

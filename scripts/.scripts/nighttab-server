@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""nightTab as a local web page that always uses the current desktop theme.
+
+The nightTab extension's colours can only change when Firefox restarts (a
+user stylesheet). Served from here instead, every page load also gets
+/desktop-theme.css, made from the current theme's nighttab.css (see
+theme-generate), so each new tab matches the theme theme-set last applied;
+pages already open hear about a theme change through /events and swap the
+stylesheet.
+Point new tabs at http://127.0.0.1:PORT/ (e.g. with the "New Tab Override"
+add-on). nightTab's own files: ~/.local/share/nighttab (nighttab-install).
+
+Usage: nighttab-server [PORT]   (default 47321; run by nighttab.service)
+"""
+import http.server
+import os
+import sys
+import time
+
+HOME = os.path.expanduser("~")
+ROOT = os.environ.get("NIGHTTAB_DIR", os.path.join(HOME, ".local/share/nighttab"))
+THEME = os.environ.get("NIGHTTAB_THEME_CSS",
+                       os.path.join(HOME, ".local/state/theme/current/nighttab.css"))
+HEAD = b"""<link id="desktop-theme" rel="stylesheet" href="/desktop-theme.css">
+<script>
+new EventSource("/events").onmessage = () => {
+    document.getElementById("desktop-theme").href = "/desktop-theme.css?" + Date.now();
+};
+</script>"""
+
+
+def theme_stamp():
+    """Changes when theme-set switches theme (current -> another folder) or
+    the theme's file is regenerated."""
+    try:
+        real = os.path.realpath(THEME)
+        return real, os.stat(real).st_mtime_ns
+    except OSError:
+        return None
+
+
+def theme_css():
+    try:
+        with open(THEME) as f:
+            body = "".join(l for l in f if not l.startswith("/*"))
+    except OSError:
+        return b"/* no nighttab.css in this theme: nightTab's own colours */\n"
+    return f"html {{\n{body}}}\n".encode()
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=ROOT, **kwargs)
+
+    def send(self, data, kind):
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path == "/desktop-theme.css":
+            return self.send(theme_css(), "text/css; charset=utf-8")
+        if path in ("/", "/index.html"):
+            with open(os.path.join(ROOT, "index.html"), "rb") as f:
+                page = f.read().replace(b"</head>", HEAD + b"</head>", 1)
+            return self.send(page, "text/html; charset=utf-8")
+        if path == "/events":
+            return self.events()
+        return super().do_GET()
+
+    def events(self):
+        """Server-sent events: a message whenever the theme changes."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        stamp, idle = theme_stamp(), 0
+        try:
+            self.wfile.write(b"retry: 2000\n\n")
+            self.wfile.flush()
+            while True:
+                time.sleep(0.5)
+                idle += 1
+                now = theme_stamp()
+                if now != stamp:
+                    stamp, idle = now, 0
+                    self.wfile.write(b"data: theme\n\n")
+                elif idle >= 30:  # keep-alive comment every 15 s
+                    idle = 0
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    continue
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def end_headers(self):
+        # nightTab's own scripts, styles, fonts and icons never change; the
+        # page, the theme and the event stream must not be cached.
+        path = self.path.split("?")[0]
+        static = path.startswith(("/font/", "/icon/")) or (
+            path.endswith((".js", ".css")) and path != "/desktop-theme.css")
+        if not static:
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def main():
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 47321
+    http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

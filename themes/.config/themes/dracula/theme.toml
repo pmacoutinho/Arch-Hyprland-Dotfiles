@@ -1,0 +1,20 @@
+name = "Dracula"
+generate = true
+hyprpanel = "dracula"
+nvim_colorscheme = "dracula"
+lualine = "auto"
+fish = "dracula"
+bat = "Dracula"
+gtk4 = "generate"
+backgrounds = "~/.local/share/themes/dracula/backgrounds"
+
+# The VPN IT button (and its menu accent) use the weather module colour, which
+# isn't on the bar: a blue that fits the theme (cyan).
+[hyprpanel_overrides]
+"theme.bar.buttons.modules.weather.text" = "#8be9fd"
+
+# rofi takes HyprPanel's Dracula menu background (comment blue, #6272a4) by
+# default, which is too light: the theme background instead.
+[rofi]
+BG = "#282a36"
+SEL = "#282a36"

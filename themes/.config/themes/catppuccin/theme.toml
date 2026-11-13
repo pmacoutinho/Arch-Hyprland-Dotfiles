@@ -9,3 +9,5 @@ gtk4 = "generate"
 backgrounds = "~/.local/share/themes/catppuccin/backgrounds"
 # Caticons is already Catppuccin: keep its folder icons as they are.
 icons = false
+# Obsidian's Catppuccin theme as it is, too.
+obsidian = false

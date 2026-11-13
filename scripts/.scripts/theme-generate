@@ -5,7 +5,7 @@ For every theme whose theme.toml has `generate = true`, reads its colors.toml
 (Omarchy's palette format) and writes, next to it:
     hyprland.lua  hyprlock.conf  kitty.conf  rofi.rasi  starship.toml
     tmux.conf     gtk.css        fish.theme  nvim.lua    hyprpanel.json
-    icons.json
+    icons.json    obsidian.css   claude.json   nighttab.css
 The kitty and Hyprland mappings follow Omarchy's templates
 (github.com/omacom/omarchy default/themed/*.tpl, MIT).
 
@@ -55,6 +55,11 @@ def hyprlock(p):
 
 
 def kitty(p):
+    # ANSI black and white: background and foreground, swapped round for a
+    # light theme so "black" text stays dark there.
+    black, white, bright_white = p["background"], p["foreground"], p["bright_foreground"]
+    if p.get("mode") == "light":
+        black, white, bright_white = p["foreground"], p["darker_background"], p["dark_background"]
     return f"""# {HEADER}
 foreground               {p['foreground']}
 background               {p['background']}
@@ -74,14 +79,14 @@ inactive_tab_background  {p['background']}
 active_border_color      {p['accent']}
 inactive_border_color    {p['selection']}
 
-color0   {p['background']}
+color0   {black}
 color1   {p['red']}
 color2   {p['green']}
 color3   {p['yellow']}
 color4   {p['blue']}
 color5   {p['magenta']}
 color6   {p['cyan']}
-color7   {p['foreground']}
+color7   {white}
 color8   {p['muted']}
 color9   {p['bright_red']}
 color10  {p['bright_green']}
@@ -89,14 +94,15 @@ color11  {p['bright_yellow']}
 color12  {p['bright_blue']}
 color13  {p['bright_magenta']}
 color14  {p['bright_cyan']}
-color15  {p['bright_foreground']}
+color15  {bright_white}
 """
 
 
-def rofi(p, bar):
+def rofi(p, bar, overrides=None):
     """rofi in the colours of the theme's HyprPanel bar and menus: menu
     background and text, the bar buttons' outline colour for the border, the
-    search underline and the selected item (with background-coloured text)."""
+    search underline and the selected item (with background-coloured text).
+    theme.toml's [rofi] table overrides any of these (e.g. BG = "#282a36")."""
     colours = {
         "BG": bar["theme.bar.menus.background"],
         "BGA": bar["theme.bar.buttons.borderColor"],
@@ -109,6 +115,7 @@ def rofi(p, bar):
         "OFF": p["muted"],
         "ON": p["green"],
     }
+    colours.update(overrides or {})
     body = "\n".join(f"    {k + ':':<6} #{hexa(v)};" for k, v in colours.items())
     return f"/* {HEADER} */\n* {{\n{body}\n}}\n"
 
@@ -275,12 +282,17 @@ CATPPUCCIN_NAMES = {
 
 def catppuccin_roles(meta):
     """CATPPUCCIN_ROLES, with theme.toml's [hyprpanel_roles] overrides
-    (Catppuccin colour name -> palette role), e.g. to limit the bar to a few
-    colours."""
+    (Catppuccin colour name -> palette role or "#rrggbb"), e.g. to limit the
+    bar to a few colours."""
     roles = dict(CATPPUCCIN_ROLES)
     for name, role in meta.get("hyprpanel_roles", {}).items():
         roles[CATPPUCCIN_NAMES[name]] = role
     return roles
+
+
+def role_colour(roles, role):
+    """A palette role name, or a literal "#rrggbb"."""
+    return role if role.startswith("#") else roles[role]
 
 
 def rgb(c):
@@ -299,7 +311,7 @@ def hyprpanel(p, table=CATPPUCCIN_ROLES):
         value = value.lower()
         # HyprPanel's file has near-copies (#b4beff, #f38ba7…): use the closest.
         nearest = min(table, key=lambda c: sum((x - y) ** 2 for x, y in zip(rgb(c), rgb(value))))
-        return roles[table[nearest]].lower()
+        return role_colour(roles, table[nearest]).lower()
 
     with open(HYPRPANEL_BASE) as f:
         base = json.load(f)
@@ -311,10 +323,88 @@ def icons(p, table=CATPPUCCIN_ROLES):
     """Catppuccin colour -> this palette, for recolouring the Caticons folder
     icons (theme-set builds a Caticons-<theme> icon theme from it)."""
     roles = dict(p, button=mix(p["background"], p["lighter_background"], 0.4))
-    mapping = {c: roles[r].lower() for c, r in table.items() if r != "button"}
+    mapping = {c: role_colour(roles, r).lower() for c, r in table.items() if r != "button"}
     if all(k == v for k, v in mapping.items()):
         return None  # a Catppuccin palette: Caticons already matches
     return json.dumps(mapping, indent=2) + "\n"
+
+
+# Catppuccin Mocha's other colour names (accents are in CATPPUCCIN_NAMES).
+CATPPUCCIN_BASE_NAMES = {
+    "text": "#cdd6f4", "subtext1": "#bac2de", "subtext0": "#a6adc8", "overlay2": "#9399b2",
+    "overlay1": "#7f849c", "overlay0": "#6c7086", "surface2": "#585b70", "surface1": "#45475a",
+    "surface0": "#313244", "base": "#1e1e2e", "mantle": "#181825", "crust": "#11111b",
+}
+
+
+def obsidian(p):
+    """A CSS snippet for Obsidian's Catppuccin theme (github.com/catppuccin/obsidian):
+    its --ctp-* colours swapped for this palette, as for HyprPanel. theme-set
+    copies it into each vault's .obsidian/snippets/."""
+    names = dict(CATPPUCCIN_NAMES, **CATPPUCCIN_BASE_NAMES)
+    lines = [f"/* {HEADER} */", "body.theme-dark.theme-dark,", "body.theme-light.theme-light {"]
+    for name, mocha in names.items():
+        colour = p[CATPPUCCIN_ROLES[mocha]]
+        lines.append(f"    --ctp-{name}: {', '.join(map(str, rgb(colour)))};")
+    for name, mocha in CATPPUCCIN_NAMES.items():
+        lines.append(f"    --hex-{name}: {p[CATPPUCCIN_ROLES[mocha]]};")
+    return "\n".join(lines + ["}"]) + "\n"
+
+
+def claude(p, meta):
+    """A Claude Code custom theme (code.claude.com/docs/en/terminal-config):
+    its colour tokens from the palette, on the dark or light base. theme-set
+    writes it to ~/.claude/themes/desktop.json, which Claude Code reloads live."""
+    bg, fg = p["background"], p["foreground"]
+    tint = lambda colour, t: mix(bg, colour, t)
+    tokens = {
+        "claude": p["accent"], "text": fg, "inverseText": bg,
+        "inactive": mix(bg, fg, 0.55), "subtle": mix(bg, fg, 0.35),
+        "suggestion": p["blue"], "permission": p["blue"], "remember": p["blue"],
+        "success": p["green"], "error": p["red"], "warning": p["yellow"], "merged": p["magenta"],
+        "promptBorder": mix(bg, fg, 0.35), "planMode": p["cyan"], "autoAccept": p["magenta"],
+        "bashBorder": p["magenta"], "ide": p["blue"], "fastMode": p["orange"],
+        "diffAdded": tint(p["green"], 0.25), "diffRemoved": tint(p["red"], 0.25),
+        "diffAddedDimmed": tint(p["green"], 0.12), "diffRemovedDimmed": tint(p["red"], 0.12),
+        "diffAddedWord": tint(p["green"], 0.5), "diffRemovedWord": tint(p["red"], 0.5),
+        "userMessageBackground": p["lighter_background"],
+        "userMessageBackgroundHover": p["selection"],
+        "bashMessageBackgroundColor": p["lighter_background"],
+        "memoryBackgroundColor": p["lighter_background"],
+        "selectionBg": p["selection"],
+        "rate_limit_fill": p["accent"], "rate_limit_empty": p["selection"],
+        "red_FOR_SUBAGENTS_ONLY": p["red"], "blue_FOR_SUBAGENTS_ONLY": p["blue"],
+        "green_FOR_SUBAGENTS_ONLY": p["green"], "yellow_FOR_SUBAGENTS_ONLY": p["yellow"],
+        "purple_FOR_SUBAGENTS_ONLY": p["magenta"], "orange_FOR_SUBAGENTS_ONLY": p["orange"],
+        "pink_FOR_SUBAGENTS_ONLY": p["bright_magenta"], "cyan_FOR_SUBAGENTS_ONLY": p["cyan"],
+    }
+    return json.dumps({"name": f"Desktop ({meta['name']})",
+                       "base": "light" if p.get("mode") == "light" else "dark",
+                       "overrides": tokens}, indent=2) + "\n"
+
+
+def nighttab(p):
+    """Overrides for the nightTab new-tab page (Firefox): its 14 background
+    shades and accent colour, as CSS variables. theme-set wraps this for the
+    extension's page in the profile's userContent.css. It assumes nightTab's
+    style is Dark (shade 1 is the page background); text colours are worked
+    out by nightTab from each shade's brightness, so light palettes work."""
+    import colorsys
+    bg, fg = p["background"], p["foreground"]
+    lines = [f"/* {HEADER} */"]
+    for n in range(1, 15):
+        r, g, b = rgb(mix(bg, fg, (n - 1) / 13 * 0.6))
+        h, l, sat = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+        lines += [f"--theme-primary-{n}-r: {r} !important;", f"--theme-primary-{n}-g: {g} !important;",
+                  f"--theme-primary-{n}-b: {b} !important;", f"--theme-primary-{n}-h: {round(h * 360)} !important;",
+                  f"--theme-primary-{n}-s: {round(sat * 100)} !important;",
+                  f"--theme-primary-{n}-l: {round(l * 100)} !important;"]
+    r, g, b = rgb(p["accent"])
+    dark_text = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55
+    lines += [f"--theme-accent-rgb-r: {r} !important;", f"--theme-accent-rgb-g: {g} !important;",
+              f"--theme-accent-rgb-b: {b} !important;", f"--theme-accent: {r}, {g}, {b} !important;",
+              f"--theme-accent-text: 0, 0%, {0 if dark_text else 100}% !important;"]
+    return "\n".join(lines) + "\n"
 
 
 def generate(theme):
@@ -334,8 +424,9 @@ def generate(theme):
             bar = json.load(f)
     files = {
         "hyprland.lua": hyprland(p), "hyprlock.conf": hyprlock(p), "kitty.conf": kitty(p),
-        "rofi.rasi": rofi(p, bar), "starship.toml": starship(p), "tmux.conf": tmux(p),
-        "nvim.lua": nvim(p, meta),
+        "rofi.rasi": rofi(p, bar, meta.get("rofi")), "starship.toml": starship(p), "tmux.conf": tmux(p),
+        "nvim.lua": nvim(p, meta), "claude.json": claude(p, meta),
+        "nighttab.css": nighttab(p),
     }
     if meta.get("gtk4") == "generate":
         files["gtk.css"] = gtk4(p)
@@ -343,6 +434,11 @@ def generate(theme):
         files["fish.theme"] = fish(p)
     if meta.get("hyprpanel") == "generate":
         files["hyprpanel.json"] = bar_json
+    path = os.path.join(folder, "obsidian.css")
+    if meta.get("obsidian", True):
+        files["obsidian.css"] = obsidian(p)
+    elif os.path.exists(path):
+        os.remove(path)  # e.g. Catppuccin: Obsidian's Catppuccin theme as it is
     icon_map = icons(p, table) if meta.get("icons", True) else None
     path = os.path.join(folder, "icons.json")
     if icon_map:
