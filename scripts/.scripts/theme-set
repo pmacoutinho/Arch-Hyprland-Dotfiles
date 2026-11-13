@@ -176,6 +176,9 @@ def apply_hyprpanel(meta):
         source = os.path.join(HYPRPANEL_THEMES, f"{meta['hyprpanel']}.json")
     with open(source) as f:
         colours = {k: v for k, v in json.load(f).items() if k != "theme.bar.buttons.style"}
+    # theme.toml can override single HyprPanel colours, e.g. the weather module
+    # colour, which the VPN IT button uses (modules.scss).
+    colours.update(meta.get("hyprpanel_overrides", {}))
     with open(HYPRPANEL_CONFIG) as f:
         config = json.load(f)
     # HyprPanel's theme files don't all set the same keys: drop colours the new

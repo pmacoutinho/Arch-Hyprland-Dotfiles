@@ -7,3 +7,8 @@ fish = "Rosé Pine"
 bat = "ansi"
 gtk4 = "generate"
 backgrounds = "~/.local/share/themes/rose-pine/backgrounds"
+
+# The VPN IT button (and its menu accent) use the weather module colour, which
+# isn't on the bar: a blue that fits the theme (foam).
+[hyprpanel_overrides]
+"theme.bar.buttons.modules.weather.text" = "#9ccfd8"

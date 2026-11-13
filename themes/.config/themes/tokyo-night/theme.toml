@@ -7,3 +7,8 @@ fish = "generate"
 bat = "ansi"
 gtk4 = "generate"
 backgrounds = "~/.local/share/themes/tokyo-night/backgrounds"
+
+# The VPN IT button (and its menu accent) use the weather module colour, which
+# isn't on the bar: a blue that fits the theme (blue).
+[hyprpanel_overrides]
+"theme.bar.buttons.modules.weather.text" = "#7aa2f7"
