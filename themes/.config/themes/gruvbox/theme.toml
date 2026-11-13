@@ -11,5 +11,13 @@ background = "dopesmoker_gruvbox.png"
 
 # The VPN IT button (and its menu accent) use the weather module colour, which
 # isn't on the bar: a blue that fits the theme (blue).
+#
+# Workspace icons: HyprPanel's gruvbox uses bright red (#fb4934, 96%
+# saturation), too loud on the bar; the same red hue at 55% saturation.
+# The workspace and tray boxes get a cream outline (Gruvbox light0_soft) instead of
+# HyprPanel's pure white, which is too stark for the theme.
 [hyprpanel_overrides]
 "theme.bar.buttons.modules.weather.text" = "#83a598"
+"theme.bar.buttons.workspaces.occupied" = "#d06b5f"
+"theme.bar.buttons.workspaces.border" = "#f2e5bc"
+"theme.bar.buttons.systray.border" = "#f2e5bc"
