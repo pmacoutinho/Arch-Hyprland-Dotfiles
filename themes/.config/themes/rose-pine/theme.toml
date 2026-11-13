@@ -8,7 +8,10 @@ bat = "ansi"
 gtk4 = "generate"
 backgrounds = "~/.local/share/themes/rose-pine/backgrounds"
 
-# The VPN IT button (and its menu accent) use the weather module colour, which
-# isn't on the bar: a blue that fits the theme (foam).
+# The VPN buttons (and their menu accents) use module colours that aren't on
+# the bar. VPN IT (weather): a blue that fits the theme (foam). ProtonVPN
+# (netstat): Rosé Pine has no green (its "pine" is teal-blue) and HyprPanel's
+# rose_pine sets netstat to foam too, so a soft green as light as foam.
 [hyprpanel_overrides]
 "theme.bar.buttons.modules.weather.text" = "#9ccfd8"
+"theme.bar.buttons.modules.netstat.text" = "#9cd3aa"
