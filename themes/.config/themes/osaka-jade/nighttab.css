@@ -83,8 +83,8 @@
 --theme-primary-14-h: 72 !important;
 --theme-primary-14-s: 13 !important;
 --theme-primary-14-l: 45 !important;
---theme-accent-rgb-r: 80 !important;
---theme-accent-rgb-g: 148 !important;
---theme-accent-rgb-b: 117 !important;
---theme-accent: 80, 148, 117 !important;
---theme-accent-text: 0, 0%, 100% !important;
+--theme-accent-rgb-r: 227 !important;
+--theme-accent-rgb-g: 215 !important;
+--theme-accent-rgb-b: 184 !important;
+--theme-accent: 227, 215, 184 !important;
+--theme-accent-text: 0, 0%, 0% !important;

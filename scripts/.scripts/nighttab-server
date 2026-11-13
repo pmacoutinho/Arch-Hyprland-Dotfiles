@@ -7,12 +7,19 @@ user stylesheet). Served from here instead, every page load also gets
 theme-generate), so each new tab matches the theme theme-set last applied;
 pages already open hear about a theme change through /events and swap the
 stylesheet.
+
+nightTab keeps its bookmarks and settings in the page's localStorage, which
+Firefox may clear (e.g. "delete site data on close"). So the page also saves
+them here (~/.local/share/nighttab-data/data.json, last 5 versions kept as
+data.json.1…5) and restores them when its localStorage is empty.
+
 Point new tabs at http://127.0.0.1:PORT/ (e.g. with the "New Tab Override"
 add-on). nightTab's own files: ~/.local/share/nighttab (nighttab-install).
 
 Usage: nighttab-server [PORT]   (default 47321; run by nighttab.service)
 """
 import http.server
+import json
 import os
 import sys
 import time
@@ -21,11 +28,47 @@ HOME = os.path.expanduser("~")
 ROOT = os.environ.get("NIGHTTAB_DIR", os.path.join(HOME, ".local/share/nighttab"))
 THEME = os.environ.get("NIGHTTAB_THEME_CSS",
                        os.path.join(HOME, ".local/state/theme/current/nighttab.css"))
+DATA = os.environ.get("NIGHTTAB_DATA", os.path.join(HOME, ".local/share/nighttab-data/data.json"))
+KEEP = 5
+PORT = 47321
+
+# Runs before nightTab's own (deferred) script: restore its data if Firefox
+# cleared it, save every change, follow theme changes.
 HEAD = b"""<link id="desktop-theme" rel="stylesheet" href="/desktop-theme.css">
 <script>
-new EventSource("/events").onmessage = () => {
-    document.getElementById("desktop-theme").href = "/desktop-theme.css?" + Date.now();
-};
+(() => {
+    const keys = ["nightTab", "nightTabStyle"];
+    try {
+        if (localStorage.getItem("nightTab") === null) {
+            const x = new XMLHttpRequest();
+            x.open("GET", "/data", false);
+            x.send();
+            if (x.status === 200) {
+                const saved = JSON.parse(x.responseText);
+                for (const k of keys) if (typeof saved[k] === "string") localStorage.setItem(k, saved[k]);
+            }
+        }
+    } catch (e) {}
+    let timer;
+    const save = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            const data = {};
+            for (const k of keys) { const v = localStorage.getItem(k); if (v !== null) data[k] = v; }
+            if (data.nightTab) fetch("/data", { method: "POST", body: JSON.stringify(data), keepalive: true,
+                                               headers: { "X-NightTab": "1" } });
+        }, 500);
+    };
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+        setItem.call(this, k, v);
+        if (this === localStorage && keys.includes(k)) save();
+    };
+    save();
+    new EventSource("/events").onmessage = () => {
+        document.getElementById("desktop-theme").href = "/desktop-theme.css?" + Date.now();
+    };
+})();
 </script>"""
 
 
@@ -37,6 +80,25 @@ def theme_stamp():
         return real, os.stat(real).st_mtime_ns
     except OSError:
         return None
+
+
+def save_data(body):
+    """data.json, keeping the previous versions as data.json.1…KEEP."""
+    try:
+        with open(DATA, "rb") as f:
+            if f.read() == body:
+                return
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(DATA), exist_ok=True)
+    for n in range(KEEP - 1, 0, -1):
+        if os.path.exists(f"{DATA}.{n}"):
+            os.replace(f"{DATA}.{n}", f"{DATA}.{n + 1}")
+    if os.path.exists(DATA):
+        os.replace(DATA, f"{DATA}.1")
+    with open(DATA + ".tmp", "wb") as f:
+        f.write(body)
+    os.replace(DATA + ".tmp", DATA)
 
 
 def theme_css():
@@ -65,11 +127,40 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.send(theme_css(), "text/css; charset=utf-8")
         if path in ("/", "/index.html"):
             with open(os.path.join(ROOT, "index.html"), "rb") as f:
-                page = f.read().replace(b"</head>", HEAD + b"</head>", 1)
+                page = f.read().replace(b"<head>", b"<head>" + HEAD, 1)
             return self.send(page, "text/html; charset=utf-8")
         if path == "/events":
             return self.events()
+        if path == "/data":
+            if not self.local():
+                return self.send_error(403)
+            try:
+                with open(DATA, "rb") as f:
+                    return self.send(f.read(), "application/json")
+            except OSError:
+                return self.send_error(404)
         return super().do_GET()
+
+    def local(self):
+        """Only the nightTab page itself: right Host (no DNS rebinding) and,
+        for saves, a custom header other sites can't send without CORS."""
+        return self.headers.get("Host") == f"127.0.0.1:{PORT}"
+
+    def do_POST(self):
+        if self.path != "/data" or not self.local() or self.headers.get("X-NightTab") != "1":
+            return self.send_error(403)
+        length = int(self.headers.get("Content-Length") or 0)
+        if not 0 < length <= 5_000_000:
+            return self.send_error(413)
+        body = self.rfile.read(length)
+        try:
+            data = json.loads(body)
+            if json.loads(data["nightTab"]).get("nightTab") is not True:
+                raise ValueError
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return self.send_error(400)
+        save_data(body)
+        self.send(b"", "text/plain")
 
     def events(self):
         """Server-sent events: a message whenever the theme changes."""
@@ -111,8 +202,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 47321
-    http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    global PORT
+    PORT = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 
 if __name__ == "__main__":

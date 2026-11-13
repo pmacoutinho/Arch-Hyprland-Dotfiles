@@ -383,12 +383,14 @@ def claude(p, meta):
                        "overrides": tokens}, indent=2) + "\n"
 
 
-def nighttab(p):
+def nighttab(p, table=CATPPUCCIN_ROLES):
     """Overrides for the nightTab new-tab page (Firefox): its 14 background
     shades and accent colour, as CSS variables. theme-set wraps this for the
     extension's page in the profile's userContent.css. It assumes nightTab's
     style is Dark (shade 1 is the page background); text colours are worked
-    out by nightTab from each shade's brightness, so light palettes work."""
+    out by nightTab from each shade's brightness, so light palettes work.
+    The accent is the bar's (Catppuccin lavender's role, so theme.toml's
+    [hyprpanel_roles] applies: Osaka Jade's cream)."""
     import colorsys
     bg, fg = p["background"], p["foreground"]
     lines = [f"/* {HEADER} */"]
@@ -399,7 +401,8 @@ def nighttab(p):
                   f"--theme-primary-{n}-b: {b} !important;", f"--theme-primary-{n}-h: {round(h * 360)} !important;",
                   f"--theme-primary-{n}-s: {round(sat * 100)} !important;",
                   f"--theme-primary-{n}-l: {round(l * 100)} !important;"]
-    r, g, b = rgb(p["accent"])
+    roles = dict(p, button=mix(p["background"], p["lighter_background"], 0.4))
+    r, g, b = rgb(role_colour(roles, table[CATPPUCCIN_NAMES["lavender"]]))
     dark_text = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55
     lines += [f"--theme-accent-rgb-r: {r} !important;", f"--theme-accent-rgb-g: {g} !important;",
               f"--theme-accent-rgb-b: {b} !important;", f"--theme-accent: {r}, {g}, {b} !important;",
@@ -426,7 +429,7 @@ def generate(theme):
         "hyprland.lua": hyprland(p), "hyprlock.conf": hyprlock(p), "kitty.conf": kitty(p),
         "rofi.rasi": rofi(p, bar, meta.get("rofi")), "starship.toml": starship(p), "tmux.conf": tmux(p),
         "nvim.lua": nvim(p, meta), "claude.json": claude(p, meta),
-        "nighttab.css": nighttab(p),
+        "nighttab.css": nighttab(p, table),
     }
     if meta.get("gtk4") == "generate":
         files["gtk.css"] = gtk4(p)
