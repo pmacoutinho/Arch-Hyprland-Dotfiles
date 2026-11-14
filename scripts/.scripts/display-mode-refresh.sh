@@ -1,33 +1,135 @@
 #!/bin/bash
-# Run by the mirror/extend toggle (Fn+F3 / SUPER+P in hyprland.lua) after the
-# monitor layout has changed.
+# Run by hyprland.lua after a mirror/extend switch (Fn+F3 / SUPER+P), when an
+# external screen appears or goes away, and at login.
+#  - A screen that just appeared is a normal screen at first, so apps get to
+#    know it. In mirror mode, mirror it once its HyprPanel bar and wallpaper
+#    are on it: a bar HyprPanel builds after that lands on the laptop panel
+#    instead (two bars there), while one built before stays with the screen
+#    and shows up instantly whenever it's extended.
+#  - Extended: if the screen's bar isn't there right away, make HyprPanel
+#    rebuild its bars at once (it isn't told about mirror <-> extend): add a
+#    headless output for a moment (invisible; the panel's bar blinks).
+#  - Once the monitors have settled: rebuild night mode's shader (built per
+#    layout, skipping mirrors), and check every screen has a wallpaper and one
+#    bar. No wallpaper means the screen was never announced to apps: switch it
+#    off and on (reconnect_output in hyprland.lua; black for ~2s, so only
+#    then). Bars wrong: rebuild them as above, else restart HyprPanel.
+# A newer run (you switched again) makes this one stop, so it never acts on a
+# layout you've already left.
 
-# Night mode's shader is built per-layout (it skips mirror outputs).
-sh ~/.scripts/toggleHyprsunset.sh --refresh
+RUN=${XDG_RUNTIME_DIR:-/tmp}
+gen="$$.$(date +%s%N)"
+echo "$gen" > "$RUN/display-mode-refresh.gen"
+superseded() { [ "$(cat "$RUN/display-mode-refresh.gen" 2>/dev/null)" != "$gen" ]; }
+mode=$(cat "$RUN/hypr-display-mode" 2>/dev/null)
 
-# An extended screen should get its HyprPanel bar by itself (hyprland.lua makes
-# sure apps know every screen). But a HyprPanel started while the screen was a
-# mirror (e.g. restarted by theme-set) never puts a bar on it, while newly
-# started apps do see it once it's extended. So if an extended screen still
-# has no bar after ~2s, restart HyprPanel (the bars blink for a second).
-bar_less() {
-    local layers
-    layers=$(hyprctl layers -j)
-    for mon in $(hyprctl monitors all -j | jq -r '.[] | select(.mirrorOf == "none" and (.disabled | not)) | .name'); do
-        # skip headless/virtual outputs (e.g. "tab")
-        [[ $mon == HEADLESS* || $mon == tab ]] && continue
-        # HyprPanel's bars are bar-0, bar-1…; bar-backdrop is ours, not a bar.
-        jq -e --arg m "$mon" '[.[$m].levels[]?[]? | select(.namespace | test("^bar-[0-9]+$"))] | length > 0' \
-            <<<"$layers" >/dev/null || echo "$mon"
+layout() {
+    cat "$RUN/hypr-display-mode" 2>/dev/null
+    hyprctl monitors all -j | jq -c '[.[] | [.name, .mirrorOf, .disabled]]'
+}
+
+# Wait until the layout has stayed the same for 0.6s (at most ~6s).
+settle() {
+    local prev cur same=0
+    prev=$(layout)
+    for _ in $(seq 30); do
+        sleep 0.2
+        superseded && exit 0
+        cur=$(layout)
+        if [ "$cur" = "$prev" ]; then
+            ((++same >= 3)) && return
+        else
+            same=0 prev=$cur
+        fi
     done
 }
 
-pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' >/dev/null || exit 0
+# What's wrong, one per line: "wallpaper MON" (no hyprpaper layer) or
+# "bar MON" (not exactly one bar-N layer; bar-backdrop is ours, not a bar).
+# Only checked for the apps that are running; mirrors have no layers.
+problems() {
+    local bar=false wallpaper=false
+    pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' >/dev/null && bar=true
+    pgrep -x hyprpaper >/dev/null && wallpaper=true
+    hyprctl monitors all -j | jq -r --argjson layers "$(hyprctl layers -j)" \
+        --argjson bar "$bar" --argjson wallpaper "$wallpaper" '
+        .[] | select(.mirrorOf == "none" and (.disabled | not)) | .name
+        | select(test("^(HEADLESS|tab$)") | not) as $m
+        | [$layers[$m].levels[]?[]? | .namespace] as $ns
+        | (if $wallpaper and ($ns | index("hyprpaper") | not) then "wallpaper \($m)" else empty end),
+          (if $bar and ([$ns[] | select(test("^bar-[0-9]+$"))] | length) != 1 then "bar \($m)" else empty end)'
+}
 
-for _ in 1 2 3 4; do
-    [ -z "$(bar_less)" ] && exit 0
-    sleep 0.5
-done
+# External screens currently shown as normal screens.
+extended() {
+    hyprctl monitors all -j | jq -r '.[] | select(.mirrorOf == "none" and (.disabled | not)) | .name
+        | select(test("^(eDP|HEADLESS|tab$)") | not)'
+}
 
-~/.scripts/hyprpanel-quit  # (waits until it has quit)
-hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null
+# Problems that last ~1.5s (HyprPanel takes a moment to add/move bars).
+lasting() {
+    local p
+    for _ in $(seq 3); do
+        p=$(problems)
+        [ -z "$p" ] && return
+        sleep 0.5
+        superseded && exit 0
+    done
+    echo "$p"
+}
+
+# HyprPanel rebuilds all its bars ~0.3s after Hyprland reports a screen
+# added/removed.
+rebuild_bars() {
+    hyprctl output create headless HEADLESS-BARS >/dev/null
+    sleep 0.2
+    hyprctl output remove HEADLESS-BARS >/dev/null
+}
+
+if [ "$mode" != extend ] && [ -n "$(extended)" ]; then
+    # Appeared as a normal screen: wait (≤5s) until bars and wallpapers are
+    # all there and stay so for 0.6s, then mirror.
+    ok=0
+    for _ in $(seq 25); do
+        sleep 0.2
+        superseded && exit 0
+        if [ -z "$(problems)" ]; then ((++ok >= 3)) && break; else ok=0; fi
+    done
+    hyprctl eval 'apply_mirrors()' >/dev/null
+elif [ "$mode" = extend ]; then
+    for _ in 1 2 3; do
+        sleep 0.15
+        superseded && exit 0
+        p=$(problems)
+        grep -q '^bar' <<<"$p" || break
+    done
+    # (A screen without wallpaper needs switching off/on, below.)
+    grep -q '^bar' <<<"$p" && ! grep -q '^wallpaper' <<<"$p" && rebuild_bars
+fi
+
+settle
+sh ~/.scripts/toggleHyprsunset.sh --refresh
+
+p=$(lasting)
+[ -z "$p" ] && exit 0
+if [ "$mode" = extend ]; then
+    for mon in $(awk '$1 == "wallpaper" && $2 !~ /^eDP/ {print $2}' <<<"$p"); do
+        superseded && exit 0
+        hyprctl eval "reconnect_output(\"$mon\")" >/dev/null
+    done
+    if grep -q '^wallpaper' <<<"$p"; then
+        settle
+        p=$(lasting)
+    fi
+fi
+if grep -q '^bar' <<<"$p"; then
+    superseded && exit 0
+    rebuild_bars
+    sleep 1
+    p=$(lasting)
+fi
+if grep -q '^bar' <<<"$p"; then
+    superseded && exit 0
+    ~/.scripts/hyprpanel-quit  # (waits until it has quit)
+    hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null
+fi

@@ -57,19 +57,70 @@ local function monitor_present(name)
     return false
 end
 
+-- How apps see the external screen (tested 2026-11-14 with headless outputs):
+--  * One that was a normal screen at some point stays known to apps through
+--    mirroring: extending it (just a rule change, seamless) brings back its
+--    wallpaper and bar.
+--  * One that is a mirror from the moment it appears (replugged, or the
+--    monitor waking up from suspend, while the mirror rule is in force) is
+--    never announced: extended later it gets no wallpaper or bar, and
+--    restarting the apps doesn't help. Only switching it off and on does
+--    (the screen goes black ~2s).
+--  * HyprPanel builds a bar ~0.5s after a screen appears. A bar built after
+--    the screen became a mirror lands on the laptop panel (two bars there).
+--    One built before stays with the screen, hidden while it's mirrored, and
+--    shows up instantly when it's extended.
+-- So a screen that goes away comes back as a normal one (login, replug,
+-- waking up), and in mirror mode display-mode-refresh.sh mirrors it once its
+-- bar and wallpaper are on it. SUPER+P only changes the rule. The script also
+-- checks every screen has a wallpaper and one HyprPanel bar and repairs what's
+-- missing (switching the screen off/on only when it was never announced).
+local function mirror_rule(out)
+    return { output = out, mode = "1920x1080@144", mirror = MIRROR_SRC, disabled = false }
+end
+local function extend_rule(out)
+    -- mirror = "" is required; omitting it keeps the old mirror
+    return { output = out, mode = "1920x1080@144", position = "auto-right", scale = 1,
+             mirror = "", disabled = false }
+end
+local function mode_rule(out)
+    return display_mode == "extend" and extend_rule(out) or mirror_rule(out)
+end
+local function is_external(name)
+    for _, out in ipairs(MIRROR_OUTS) do
+        if out == name then return true end
+    end
+    return false
+end
+
 local function apply_mirrors()
     if not monitor_present(MIRROR_SRC) then return end
     for _, out in ipairs(MIRROR_OUTS) do
-        if monitor_present(out) then
-            if display_mode == "extend" then
-                -- mirror = "" is required; omitting it keeps the old mirror
-                hl.monitor({ output = out, mode = "1920x1080@144", position = "auto-right", scale = 1,
-                             mirror = "", disabled = false })
-            else
-                hl.monitor({ output = out, mode = "1920x1080@144", mirror = MIRROR_SRC, disabled = false })
-            end
-        end
+        if monitor_present(out) then hl.monitor(mode_rule(out)) end
     end
+end
+-- For display-mode-refresh.sh: hyprctl eval 'apply_mirrors()'
+_G.apply_mirrors = apply_mirrors
+
+-- Switch a screen off, then on again as a normal screen (mirrored again in
+-- mirror mode, see monitor.added), so apps get to know it.
+-- For scripts: hyprctl eval 'reconnect_output("HDMI-A-1")'
+local reconnecting = {}
+_G.reconnect_output = function(out)
+    reconnecting[out] = true
+    hl.monitor({ output = out, disabled = true })
+    hl.timer(function()
+        reconnecting[out] = nil
+        hl.monitor(extend_rule(out))
+    end, { timeout = 300, type = "oneshot" })
+end
+
+-- Rebuild night mode's per-layout shader and check bars/wallpapers once the
+-- monitors have settled (the script waits for that itself).
+local function refresh_later(ms)
+    hl.timer(function()
+        hl.dispatch(hl.dsp.exec_cmd("bash ~/.scripts/display-mode-refresh.sh"))
+    end, { timeout = ms, type = "oneshot" })
 end
 
 local function toggle_display_mode()
@@ -77,25 +128,34 @@ local function toggle_display_mode()
     local f = io.open(MODE_FILE, "w")
     if f then f:write(display_mode, "\n"); f:close() end
     apply_mirrors()
-    -- Once the monitors have settled: rebuild night mode's per-layout shader
-    -- and make sure the newly extended screen got its bar.
-    hl.timer(function()
-        hl.dispatch(hl.dsp.exec_cmd("bash ~/.scripts/display-mode-refresh.sh"))
-    end, { timeout = 600, type = "oneshot" })
+    refresh_later(100)
 end
 -- Also for scripts: hyprctl eval 'toggle_display_mode()'
 _G.toggle_display_mode = toggle_display_mode
 
--- An output that is a mirror from the moment it appears is never announced to
--- apps (no wl_output), so when it's later extended HyprPanel, hyprpaper etc.
--- can't put anything on it. One that was a normal screen first stays known
--- through mirroring. So new outputs (login, hotplug) start as normal screens
--- and are mirrored half a second later. (A HyprPanel restarted while a
--- screen is mirrored, e.g. by theme-set, still won't add its bar when it's
--- extended: display-mode-refresh.sh then restarts HyprPanel.)
-hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
-hl.on("monitor.added", function()
-    hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
+-- A screen that appeared as a normal one: in mirror mode the script mirrors
+-- it once HyprPanel and hyprpaper are on it (it waits up to 5s; this timer is
+-- only a safety net).
+local function screen_appeared()
+    if display_mode == "extend" then
+        hl.timer(apply_mirrors, { timeout = 500, type = "oneshot" })
+    else
+        hl.timer(apply_mirrors, { timeout = 7000, type = "oneshot" })
+    end
+    refresh_later(300)
+end
+screen_appeared()
+-- (Only for the real externals: display-mode-refresh.sh adds and removes a
+-- headless output to make HyprPanel rebuild its bars.)
+hl.on("monitor.added", function(m)
+    if m and is_external(m.name) then screen_appeared() end
+end)
+-- Fires while the screen is still listed, hence its argument. Make it come
+-- back as a normal screen (see above).
+hl.on("monitor.removed", function(m)
+    if not (m and is_external(m.name)) or reconnecting[m.name] then return end
+    hl.monitor(extend_rule(m.name))
+    refresh_later(1000)
 end)
 hl.on("config.reloaded", function()
     hl.timer(apply_mirrors, { timeout = 250, type = "oneshot" })
@@ -109,7 +169,8 @@ hl.monitor({ output = "tab", mode = "1920x1080@60", position = "auto-left", scal
 ---------------------
 
 local terminal    = "kitty"
-local fileManager = "nautilus"
+-- --new-window: plain `nautilus` only raises an already-open window.
+local fileManager = "nautilus --new-window"
 local menu        = "rofi -show drun -scroll-method 0 -terminal kitty -theme ~/.config/rofi/theme.rasi"
 
 

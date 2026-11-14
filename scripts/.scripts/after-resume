@@ -1,0 +1,23 @@
+#!/bin/bash
+# Run by hypridle after the laptop wakes up (after_sleep_cmd in hypridle.conf).
+
+# GVfs's HTTP helper keeps connections open across the sleep. Ones that went
+# through a VPN tunnel that is gone now never get an answer, and a request on
+# one hangs until TCP gives up (~15 min). HyprPanel loads music cover art
+# (Tidal's is https) that way and waits for it, so its whole bar froze: stuck
+# clock, no VPN/network modules. GVfs starts a fresh helper when needed.
+pkill -x gvfsd-http
+
+# Proton VPN goes down on suspend, and only its app reconnects it: the bar's
+# connect script uses the CLI and closes the app. Meanwhile Proton's IPv6 leak
+# protection sends every DNS lookup to ::1, so nothing resolves until you
+# reconnect. If that's the state we woke up in, reconnect (same choice as last
+# time: pt, fastest or a server).
+nm-online -q -t 60 || exit 0
+sleep 10  # give a running Proton app the chance to reconnect by itself
+pgrep -x protonvpn-app >/dev/null && exit 0
+nmcli -t -f NAME,TYPE connection show --active | grep -q '^ProtonVPN .*:vpn$' && exit 0
+resolvectl dns ipv6leakintrf0 2>/dev/null | grep -qw '::1' || exit 0
+choice=$(awk '{print $1; exit}' "${XDG_RUNTIME_DIR:-/tmp}/vpn-proton-choice" 2>/dev/null)
+exec ~/.scripts/vpn-notify.sh 'Proton VPN' 'Reconnecting after sleep' \
+    ~/.scripts/vpn-proton-connect.sh "${choice:-pt}"
