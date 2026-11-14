@@ -8,16 +8,34 @@
 # clock, no VPN/network modules. GVfs starts a fresh helper when needed.
 pkill -x gvfsd-http
 
-# Proton VPN goes down on suspend, and only its app reconnects it: the bar's
-# connect script uses the CLI and closes the app. Meanwhile Proton's IPv6 leak
-# protection sends every DNS lookup to ::1, so nothing resolves until you
-# reconnect. If that's the state we woke up in, reconnect (same choice as last
-# time: pt, fastest or a server).
+# Proton VPN goes down on suspend. Its kill switch / leak protection then sends
+# every DNS lookup to ::1 (pvpnksintrf0, ipv6leakintrf0…), so nothing resolves
+# until it reconnects — and its app often doesn't (seen: 4 min, nothing), the
+# CLI never does. Without DNS the IT VPN can't find its server either, and
+# gives up after a few minutes. So if we woke up in that state, reconnect
+# Proton (same choice as last time: pt, fastest or a server).
+blocked_dns() {
+    resolvectl dns 2>/dev/null | awk '$3 ~ /^\((pvpn|ipv6leak)/ && / ::1( |$)/ {found = 1} END {exit !found}'
+}
+proton_up() {
+    nmcli -t -f NAME,TYPE connection show --active | grep -q '^ProtonVPN .*:vpn$'
+}
+
 nm-online -q -t 60 || exit 0
-sleep 10  # give a running Proton app the chance to reconnect by itself
-pgrep -x protonvpn-app >/dev/null && exit 0
-nmcli -t -f NAME,TYPE connection show --active | grep -q '^ProtonVPN .*:vpn$' && exit 0
-resolvectl dns ipv6leakintrf0 2>/dev/null | grep -qw '::1' || exit 0
-choice=$(awk '{print $1; exit}' "${XDG_RUNTIME_DIR:-/tmp}/vpn-proton-choice" 2>/dev/null)
-exec ~/.scripts/vpn-notify.sh 'Proton VPN' 'Reconnecting after sleep' \
-    ~/.scripts/vpn-proton-connect.sh "${choice:-pt}"
+sleep 8  # give a running Proton app the chance to reconnect by itself
+if ! proton_up && blocked_dns; then
+    choice=$(awk '{print $1; exit}' "${XDG_RUNTIME_DIR:-/tmp}/vpn-proton-choice" 2>/dev/null)
+    # (vpn-proton-connect.sh closes the Proton app first.)
+    ~/.scripts/vpn-notify.sh 'Proton VPN' 'Reconnecting after sleep' \
+        ~/.scripts/vpn-proton-connect.sh "${choice:-pt}"
+fi
+
+# An IT VPN (OpenVPN 3) session still retrying: with DNS back, restart it now
+# instead of waiting for its next attempt (or for it to give up).
+blocked_dns && exit 0
+openvpn3 sessions-list 2>/dev/null | awk '
+    /Path:/ {path = $2}
+    /Status:/ && !/Client connected/ && path {print path; path = ""}' |
+while read -r path; do
+    openvpn3 session-manage --session-path "$path" --restart >/dev/null 2>&1
+done

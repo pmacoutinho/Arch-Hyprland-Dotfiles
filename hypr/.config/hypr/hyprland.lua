@@ -187,6 +187,8 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("hyprpanel")
     hl.exec_cmd("hyprpaper")
     hl.exec_cmd("hypridle")
+    -- VPN dropdown (right click on the bar's VPN buttons), kept ready so it opens at once
+    hl.exec_cmd("~/.scripts/vpn-proton-menu.py --daemon")
 end)
 
 

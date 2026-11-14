@@ -4,6 +4,11 @@
 Styled after HyprPanel's own network menu. Opens centred under the cursor,
 closes on Esc, on a click outside it, or when launched again (toggle).
 
+Runs in the background (`--daemon`, autostarted by hyprland.lua) with its
+window ready, like HyprPanel's own dropdowns: launching the script just sends
+it SIGUSR1, before even loading GTK, so the menu opens at once. If it isn't
+running, the launch starts it and it opens the menu when ready.
+
 Optionally also offers one OpenVPN 3 profile (e.g. a work VPN), configured in
 a local, untracked file:
     ~/.config/vpn-proton-menu/custom-vpn.conf
@@ -16,15 +21,30 @@ Only the username is remembered.
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 
-import gi
+DAEMON_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "vpn-proton-menu-daemon.pid")
+
+if __name__ == "__main__" and "--daemon" not in sys.argv:
+    # Toggle the menu in the running daemon; start it if there's none.
+    try:
+        with open(DAEMON_PID) as f:
+            os.kill(int(f.read().strip()), signal.SIGUSR1)
+        sys.exit(0)
+    except (OSError, ValueError):
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--daemon", "--show"],
+                         start_new_session=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        sys.exit(0)
+
+import gi  # noqa: E402
 
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell  # noqa: E402
 
 CONNECT = os.path.expanduser("~/.scripts/vpn-proton-connect.sh")
 OPENVPN3_CONNECT = os.path.expanduser("~/.scripts/openvpn3-connect.py")
@@ -34,7 +54,6 @@ CUSTOM_USER = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
     "vpn-proton-menu", "custom-vpn-user")
 DISCONNECT = os.path.expanduser("~/.scripts/vpn-proton-disconnect.sh")
-PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "vpn-proton-menu.pid")
 
 WIDTH = 300
 TOP = 50  # just below the bar, same as HyprPanel's dropdowns
@@ -105,7 +124,7 @@ window, .backdrop { background: transparent; }
 }
 button { background: none; border: none; box-shadow: none; padding: 0; margin: 0; min-height: 0; min-width: 0; }
 .item { padding: 0.3em 0; }
-.item:not(:last-child) { margin-bottom: 0.4em; }
+.item:not(:last-child), .row:not(:last-child) { margin-bottom: 0.4em; }
 .icon { font-size: 17px; color: @ICON@; min-width: 1.4em; }
 .item:hover .icon, .item.active .icon, .icon.active { color: @ACCENT@; }
 .item:hover .title, .item.active .title { color: @ACCENT@; }
@@ -131,30 +150,26 @@ button { background: none; border: none; box-shadow: none; padding: 0; margin: 0
 """
 
 
-def toggle_existing():
-    """If a menu is already open, close it and report True."""
-    try:
-        with open(PIDFILE) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, signal.SIGTERM)
-        return True
-    except (OSError, ValueError):
-        return False
-
-
 def current_server():
-    """Return e.g. 'PT#72' for an active Proton connection, '' otherwise."""
+    """Return e.g. 'PT#72' for an active Proton connection, '' otherwise.
+    (Asks NetworkManager over D-Bus: a few ms, nmcli ~25ms.)"""
     try:
-        out = subprocess.run(
-            ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"],
-            capture_output=True, text=True, timeout=3,
-        ).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    for line in out.splitlines():
-        name, _, kind = line.rpartition(":")
-        if kind == "vpn" and name.startswith("ProtonVPN"):
-            return name.removeprefix("ProtonVPN").strip()
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+
+        def prop(path, iface, name):
+            return bus.call_sync(
+                "org.freedesktop.NetworkManager", path, "org.freedesktop.DBus.Properties", "Get",
+                GLib.Variant("(ss)", (iface, name)), GLib.VariantType("(v)"),
+                Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+
+        for path in prop("/org/freedesktop/NetworkManager",
+                         "org.freedesktop.NetworkManager", "ActiveConnections"):
+            iface = "org.freedesktop.NetworkManager.Connection.Active"
+            name = prop(path, iface, "Id")
+            if prop(path, iface, "Type") == "vpn" and name.startswith("ProtonVPN"):
+                return name.removeprefix("ProtonVPN").strip()
+    except GLib.Error:
+        pass
     return ""
 
 
@@ -177,16 +192,35 @@ def load_custom_vpn():
             "name": os.path.basename(path)}
 
 
-def custom_vpn_up(custom):
+def custom_vpn_state(custom):
+    """The extra profile's session: 'connected', 'reconnecting' (e.g. after a
+    suspend, while it retries) or None.
+
+    Asks OpenVPN 3's session manager over D-Bus: `openvpn3 sessions-list`
+    takes ~1.5s, which delayed the menu (and placed it wrong if the mouse
+    moved meanwhile)."""
     if not custom:
-        return False
+        return None
     try:
-        return subprocess.run(
-            ["openvpn3", "session-stats", "--config", custom["name"]],
-            capture_output=True, timeout=3,
-        ).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+
+        def call(path, iface, method, args, reply):
+            return bus.call_sync("net.openvpn.v3.sessions", path, iface, method, args,
+                                 GLib.VariantType(reply), Gio.DBusCallFlags.NONE, 2000, None).unpack()
+
+        def prop(path, name):
+            return call(path, "org.freedesktop.DBus.Properties", "Get",
+                        GLib.Variant("(ss)", ("net.openvpn.v3.sessions", name)), "(v)")[0]
+
+        for path in call("/net/openvpn/v3/sessions", "net.openvpn.v3.sessions",
+                         "FetchAvailableSessions", None, "(ao)")[0]:
+            if prop(path, "config_name") == custom["name"]:
+                major, minor, _ = prop(path, "status")
+                # StatusMajor CONNECTION (2), StatusMinor CONN_CONNECTED (7)
+                return "connected" if (major, minor) == (2, 7) else "reconnecting"
+    except GLib.Error:
+        pass
+    return None
 
 
 def remembered_user():
@@ -226,16 +260,27 @@ def active_choice(server):
     return None
 
 
+def hyprctl(request):
+    """Ask Hyprland directly over its socket (~1ms; the hyprctl CLI ~5ms)."""
+    path = os.path.join(os.environ["XDG_RUNTIME_DIR"], "hypr",
+                        os.environ["HYPRLAND_INSTANCE_SIGNATURE"], ".socket.sock")
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.settimeout(2)
+        sock.connect(path)
+        sock.sendall(request.encode())
+        data = b""
+        while chunk := sock.recv(65536):
+            data += chunk
+    return data.decode()
+
+
 def cursor_position():
     """Cursor x relative to its monitor, the monitor's origin and logical width."""
     try:
-        cx, cy = (int(v) for v in subprocess.run(
-            ["hyprctl", "cursorpos"], capture_output=True, text=True, timeout=2,
-        ).stdout.split(","))
-        monitors = json.loads(subprocess.run(
-            ["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=2,
-        ).stdout)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+        cursor = json.loads(hyprctl("j/cursorpos"))
+        cx, cy = cursor["x"], cursor["y"]
+        monitors = json.loads(hyprctl("j/monitors"))
+    except (OSError, KeyError, ValueError):
         return None
     for m in monitors:
         w = round(m["width"] / m["scale"])
@@ -303,11 +348,13 @@ def run_detached(label, *cmd, app="Proton VPN", stdin=None):
 
 
 class Menu(Gtk.Window):
-    def __init__(self, server, custom=None, custom_up=False, pos=None, center=None, from_it=False):
+    """The menu's window, kept between uses (hidden); open() fills it."""
+
+    def __init__(self):
         super().__init__()
-        self.server = server
-        self.custom = custom
-        self.custom_up = custom_up
+        self.provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), self.provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "vpn-proton-menu")
@@ -328,13 +375,56 @@ class Menu(Gtk.Window):
         backdrop.get_style_context().add_class("backdrop")
         backdrop.connect("button-press-event", lambda *_: self.close_menu())
         self.add(backdrop)
+        self.backdrop = backdrop
+        self.holder = None
+        self.connect("key-press-event", self.on_key)
+        self.connect("destroy", Gtk.main_quit)
 
+    def toggle(self):
+        if self.get_visible():
+            self.close_menu()
+        else:
+            self.open()
+
+    def open(self):
+        # Where the click was, before anything that takes time.
+        pos = cursor_position()
+        self.server = server = current_server()
+        self.custom = custom = load_custom_vpn()
+        self.custom_state = custom_vpn_state(custom)
+        custom_up = self.custom_state is not None
+        # Both VPN buttons can be on the bar at once: use the colour of the one
+        # that was clicked, found by its border colour under the cursor.
+        # Colours are read each time: they follow the desktop theme.
+        colours = theme_colours()
+        on, it, off = rgb(colours["VPN_ON"]), rgb(colours["VPN_IT"]), rgb(colours["VPN_OFF"])
+        candidates = [c for c, up in ((on, bool(server)), (it, custom_up)) if up] or [off]
+        accent, center = candidates[0], None
+        if pos:
+            cx, origin, mon_width = pos
+            for colour in candidates:
+                found = module_center(cx, origin, mon_width, colour)
+                if found is not None:
+                    accent, center = colour, found
+                    break
+        css = CSS.replace("@ACCENT@", "#%02x%02x%02x" % accent)
+        for name, value in colours.items():
+            css = css.replace(f"@{name}@", value)
+        self.provider.load_from_data(css.encode())
+        # Opened from the IT VPN's button (its colour was found under the
+        # cursor, or it's the only VPN up): show that VPN first.
+        self.build(pos, center, from_it=custom_up and accent == it)
+        self.show_all()
+
+    def build(self, pos, center, from_it):
+        if self.holder:
+            self.holder.destroy()
         # The menu itself swallows clicks so they don't reach the backdrop.
-        holder = Gtk.EventBox()
+        holder = self.holder = Gtk.EventBox()
         holder.connect("button-press-event", lambda *_: True)
         holder.set_halign(Gtk.Align.START)
         holder.set_valign(Gtk.Align.START)
-        backdrop.add(holder)
+        self.backdrop.add(holder)
 
         menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         menu.get_style_context().add_class("menu")
@@ -344,11 +434,9 @@ class Menu(Gtk.Window):
         if from_it and self.custom:
             # Opened from the IT VPN's button: that VPN first, then Proton.
             menu.add(self.custom_section(self.custom["label"]))
-            menu.add(self.status_section("next"))
-            menu.add(self.servers_section())
+            menu.add(self.proton_section("next"))
         else:
-            menu.add(self.status_section())
-            menu.add(self.servers_section())
+            menu.add(self.proton_section())
             if self.custom:
                 menu.add(self.custom_section("Other", "next"))
 
@@ -362,9 +450,6 @@ class Menu(Gtk.Window):
             left = max(4, min(round(x - total / 2), mon_width - total - 4))
             holder.set_margin_start(left)
         holder.set_margin_top(TOP - 8)
-
-        self.connect("key-press-event", self.on_key)
-        self.connect("destroy", Gtk.main_quit)
 
     def place_on_monitor(self, origin):
         display = Gdk.Display.get_default()
@@ -398,7 +483,7 @@ class Menu(Gtk.Window):
         button.connect("clicked", on_click)
         return button
 
-    def status_card(self, title_text, connected, on_disconnect):
+    def status_card(self, title_text, connected, on_disconnect, state_text=None):
         """A card row: lock icon, name and state, and a power button when up."""
         section = Gtk.Box(spacing=0)
         section.get_style_context().add_class("section")
@@ -411,7 +496,7 @@ class Menu(Gtk.Window):
         text.set_margin_start(10)
         title = Gtk.Label(label=title_text, xalign=0)
         title.get_style_context().add_class("title")
-        sub = Gtk.Label(label="Connected" if connected else "Disconnected", xalign=0)
+        sub = Gtk.Label(label=state_text or ("Connected" if connected else "Disconnected"), xalign=0)
         sub.get_style_context().add_class("dim")
         text.add(title)
         text.add(sub)
@@ -420,27 +505,25 @@ class Menu(Gtk.Window):
             section.pack_end(self.power_button(lambda *_: on_disconnect()), False, False, 0)
         return section
 
-    def status_section(self, extra_class=None):
-        """Proton VPN: current server and a power button."""
+    def proton_section(self, extra_class=None):
+        """Proton VPN: one row per server choice. The one in use says which
+        server it's on and has the power button; a connection made some other
+        way (Proton app) to a server not listed gets a row of its own."""
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         wrap.add(self.header("Proton VPN", extra_class))
-        wrap.add(self.status_card(self.server or "Not connected", bool(self.server),
-                                  lambda: self.choose("Disconnecting", DISCONNECT)))
-        return wrap
-
-    def servers_section(self):
-        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        wrap.add(self.header("Proton VPN Servers", "next"))
 
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         section.get_style_context().add_class("section")
         current = active_choice(self.server)
+        if self.server and current is None:
+            section.add(self.server_item(None, "󰌾", self.server, "", True))
         for arg, glyph, name, subtitle in SERVERS:
             section.add(self.server_item(arg, glyph, name, subtitle, arg == current))
         wrap.add(section)
         return wrap
 
     def server_item(self, arg, glyph, name, subtitle, active):
+        """A server row; the active one shows the server and a power button."""
         button = Gtk.Button()
         ctx = button.get_style_context()
         ctx.add_class("item")
@@ -456,15 +539,25 @@ class Menu(Gtk.Window):
         text.set_margin_start(10)
         title = Gtk.Label(label=name, xalign=0)
         title.get_style_context().add_class("title")
-        sub = Gtk.Label(label="Connected" if active else subtitle, xalign=0)
+        if active:
+            subtitle = f"Connected · {self.server}" if arg else "Connected"
+        sub = Gtk.Label(label=subtitle, xalign=0)
         sub.get_style_context().add_class("dim")
         text.add(title)
         text.add(sub)
         row.pack_start(text, True, True, 0)
-
         button.add(row)
-        button.connect("clicked", lambda *_: self.choose(f"Connecting to {name}", CONNECT, arg))
-        return button
+        if arg:
+            button.connect("clicked", lambda *_: self.choose(f"Connecting to {name}", CONNECT, arg))
+
+        # The power button sits next to the row's button, not inside it.
+        line = Gtk.Box()
+        line.get_style_context().add_class("row")
+        line.pack_start(button, True, True, 0)
+        if active:
+            line.pack_end(self.power_button(
+                lambda *_: self.choose("Disconnecting", DISCONNECT)), False, False, 0)
+        return line
 
     def custom_section(self, heading, extra_class=None):
         """The extra OpenVPN 3 profile: a card with a power button when it's up,
@@ -472,8 +565,10 @@ class Menu(Gtk.Window):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         wrap.add(self.header(heading, extra_class))
         label = self.custom["label"]
-        if self.custom_up:
-            wrap.add(self.status_card(label, True, self.disconnect_custom))
+        if self.custom_state:
+            wrap.add(self.status_card(
+                label, True, self.disconnect_custom,
+                "Connected" if self.custom_state == "connected" else "Reconnecting…"))
             return wrap
 
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -612,40 +707,22 @@ class Menu(Gtk.Window):
         return False
 
     def close_menu(self):
-        self.destroy()
+        self.hide()
         return True
 
 
 def main():
-    if toggle_existing():
-        return
-    with open(PIDFILE, "w") as f:
+    """The daemon (the launcher part is at the top of the file)."""
+    try:
+        with open(DAEMON_PID) as f:
+            os.kill(int(f.read().strip()), 0)
+        return  # already running
+    except (OSError, ValueError):
+        pass
+    with open(DAEMON_PID, "w") as f:
         f.write(str(os.getpid()))
     try:
-        provider = Gtk.CssProvider()
-        server = current_server()
-        custom = load_custom_vpn()
-        custom_up = custom_vpn_up(custom)
-        # Both VPN buttons can be on the bar at once: use the colour of the one
-        # that was clicked, found by its border colour under the cursor.
-        colours = theme_colours()
-        on, it, off = rgb(colours["VPN_ON"]), rgb(colours["VPN_IT"]), rgb(colours["VPN_OFF"])
-        candidates = [c for c, up in ((on, bool(server)), (it, custom_up)) if up] or [off]
-        accent, center = candidates[0], None
-        pos = cursor_position()
-        if pos:
-            cx, origin, mon_width = pos
-            for colour in candidates:
-                found = module_center(cx, origin, mon_width, colour)
-                if found is not None:
-                    accent, center = colour, found
-                    break
-        css = CSS.replace("@ACCENT@", "#%02x%02x%02x" % accent)
-        for name, value in colours.items():
-            css = css.replace(f"@{name}@", value)
-        provider.load_from_data(css.encode())
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        win = Menu()
         try:
             gi.require_version("GLibUnix", "2.0")
             from gi.repository import GLibUnix
@@ -653,17 +730,15 @@ def main():
         except (ImportError, ValueError):
             add_signal = GLib.unix_signal_add
         add_signal(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: Gtk.main_quit() or False)
-        # Opened from the IT VPN's button (its colour was found under the cursor,
-        # or it's the only VPN up): show that VPN first.
-        win = Menu(server, custom, custom_up, pos, center,
-                   from_it=custom_up and accent == it)
-        win.show_all()
+        add_signal(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: win.toggle() or True)
+        if "--show" in sys.argv:
+            win.open()
         Gtk.main()
     finally:
         try:
-            with open(PIDFILE) as f:
+            with open(DAEMON_PID) as f:
                 if f.read().strip() == str(os.getpid()):
-                    os.remove(PIDFILE)
+                    os.remove(DAEMON_PID)
         except OSError:
             pass
 
