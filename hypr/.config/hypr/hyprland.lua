@@ -308,6 +308,16 @@ hl.layer_rule({
     ignore_alpha = 0.01,
 })
 
+-- The same under the on-screen keyboard: bar-backdrop.py's strip under it
+-- (the keyboard itself is transparent, see onScreenKeyboard.sh).
+hl.layer_rule({
+    name         = "keyboard-backdrop",
+    match        = { namespace = "^(keyboard-backdrop)$" },
+    blur         = true,
+    xray         = true,
+    ignore_alpha = 0.01,
+})
+
 -- See https://wiki.hypr.land/Configuring/Layouts/Dwindle-Layout/ for more
 hl.config({
     dwindle = {

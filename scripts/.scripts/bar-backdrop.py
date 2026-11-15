@@ -9,6 +9,11 @@ the window's opacity rule); for other apps, the colour of their own top row
 (e.g. Firefox's tab strip), sampled from the screen just under the bar. It's a layer-shell strip just under the bar:
 no window can be under it, and it takes no clicks.
 
+The on-screen keyboard (wvkbd, onScreenKeyboard.sh) has a transparent
+background: while it's open, a second strip under it continues the screen the
+same way, following workspace switches live (wvkbd can't change colours while
+running): the bar strip's colour, or kitty's when no app fills the screen.
+
 Started at login from hyprland.lua; theme-set sends it SIGUSR1 to re-read the
 colour. Listens to Hyprland's event socket.
 """
@@ -34,7 +39,9 @@ CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache
 EVENTS = {"workspace", "workspacev2", "focusedmon", "focusedmonv2", "activewindowv2",
           "openwindow", "closewindow", "movewindow", "movewindowv2", "fullscreen",
           "changefloatingmode", "monitoradded", "monitoraddedv2", "monitorremoved",
-          "monitorremovedv2", "configreloaded", "activespecial", "activespecialv2"}
+          "monitorremovedv2", "configreloaded", "activespecial", "activespecialv2",
+          "openlayer", "closelayer"}
+KEYBOARD = "wvkbd"
 
 
 HYPR_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "hypr",
@@ -130,10 +137,10 @@ def filling_window(monitor, clients):
 
 
 class Strip(Gtk.Window):
-    def __init__(self, gdk_monitor, height):
+    def __init__(self, gdk_monitor, height, edge=GtkLayerShell.Edge.TOP, namespace="bar-backdrop"):
         super().__init__()
         GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_namespace(self, "bar-backdrop")
+        GtkLayerShell.set_namespace(self, namespace)
         # TOP layer, under the bar: windows' blur samples the background and
         # bottom layers, so a strip there would bleed into the top rows of a
         # translucent window below it. Within a layer, later surfaces draw on
@@ -141,9 +148,10 @@ class Strip(Gtk.Window):
         # keep_under_bar and the autostart order in hyprland.lua).
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
         GtkLayerShell.set_monitor(self, gdk_monitor)
-        GtkLayerShell.set_exclusive_zone(self, -1)  # sit at the very top, over the bar's area
-        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
-            GtkLayerShell.set_anchor(self, edge, True)
+        # The keyboard's strip is TOP too, under wvkbd (overlay layer).
+        GtkLayerShell.set_exclusive_zone(self, -1)  # sit at the very edge, over the bar's/keyboard's area
+        for anchor in (edge, GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(self, anchor, True)
         self.set_size_request(-1, height)
         visual = self.get_screen().get_rgba_visual()
         if visual:
@@ -168,11 +176,31 @@ class Strip(Gtk.Window):
             self.queue_draw()
 
 
+def keyboard_layer():
+    """(monitor name, height) of the open on-screen keyboard, or None."""
+    for name, monitor in (hyprctl("layers") or {}).items():
+        for level in monitor.get("levels", {}).values():
+            for layer in level:
+                if layer["namespace"] == KEYBOARD:
+                    return name, layer["h"]
+    return None
+
+
+def gdk_monitor_for(m):
+    display = Gdk.Display.get_default()
+    return next((display.get_monitor(i) for i in range(display.get_n_monitors())
+                 if display.get_monitor(i).get_model() == m["name"]
+                 or (display.get_monitor(i).get_geometry().x,
+                     display.get_monitor(i).get_geometry().y) == (m["x"], m["y"])), None)
+
+
 class Backdrop:
     def __init__(self):
         self.strips = {}
+        self.keyboard = None  # (monitor name, height, Strip) while the keyboard is open
         self.colour, self.kitty_opacity = kitty_colour()
         self.pending = False
+        self.settle_pending = False
         self.sampled = {}   # window address -> sampled rgba
         # app class -> last sampled rgba, kept across restarts: instant for new windows
         try:
@@ -188,12 +216,8 @@ class Backdrop:
             strip.destroy()
         self.strips = {}
         monitors = hyprctl("monitors") or []
-        display = Gdk.Display.get_default()
         for m in monitors:
-            gdk_monitor = next((display.get_monitor(i) for i in range(display.get_n_monitors())
-                                if display.get_monitor(i).get_model() == m["name"]
-                                or (display.get_monitor(i).get_geometry().x,
-                                    display.get_monitor(i).get_geometry().y) == (m["x"], m["y"])), None)
+            gdk_monitor = gdk_monitor_for(m)
             height = m.get("reserved", [0, 0, 0, 0])[1]
             if gdk_monitor and height > 0:
                 self.strips[m["name"]] = Strip(gdk_monitor, height)
@@ -257,7 +281,40 @@ class Backdrop:
                 # (Not before ~230ms: workspace switches fade for ~200ms.)
                 for delay in (230, 900):
                     GLib.timeout_add(delay, self.resample, m["name"], address)
+        self.update_keyboard(monitors)
         return False
+
+    def update_keyboard(self, monitors=None):
+        """The strip under the on-screen keyboard: the bar strip's colour on
+        that screen, or kitty's background when no app fills it."""
+        found = keyboard_layer()
+        if self.keyboard and (not found or found != self.keyboard[:2]):
+            self.keyboard[2].destroy()
+            self.keyboard = None
+        if not found:
+            return
+        name, height = found
+        if not self.keyboard:
+            m = next((m for m in monitors or hyprctl("monitors") or [] if m["name"] == name), None)
+            gdk_monitor = gdk_monitor_for(m) if m else None
+            if not gdk_monitor:
+                return
+            self.keyboard = (name, height, Strip(gdk_monitor, height, GtkLayerShell.Edge.BOTTOM,
+                                                 "keyboard-backdrop"))
+        bar = self.strips.get(name)
+        colour = bar.rgba if bar and bar.rgba else tuple(c / 255 for c in self.colour) + (self.kitty_opacity,)
+        self.keyboard[2].set_colour(colour)
+
+    def remember(self, key, colour):
+        """Keep an app's sampled colour across restarts (instant next time)."""
+        if self.by_class.get(key) != colour:
+            self.by_class[key] = colour
+            try:
+                os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+                with open(CACHE, "w") as f:
+                    json.dump(self.by_class, f)
+            except OSError:
+                pass
 
     def resample(self, monitor_name, address):
         monitors = hyprctl("monitors") or []
@@ -269,27 +326,35 @@ class Backdrop:
             colour = sample_top_colour(window)
             if colour:
                 self.sampled[address] = colour
-                if self.by_class.get(window.get("class")) != colour:
-                    self.by_class[window.get("class")] = colour
-                    try:
-                        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
-                        with open(CACHE, "w") as f:
-                            json.dump(self.by_class, f)
-                    except OSError:
-                        pass
+                self.remember(window.get("class"), colour)
                 strip.set_colour(colour)
+                self.update_keyboard()
         return False
 
     def schedule(self):
         if not self.pending:
             self.pending = True
             GLib.timeout_add(10, self.update)
+        # And again once the windows have their new size: e.g. switching to a
+        # workspace while the on-screen keyboard is open, its windows are only
+        # then resized to the smaller area, so the first look finds none
+        # filling it (Hyprland sends no event for that).
+        if not self.settle_pending:
+            self.settle_pending = True
+            GLib.timeout_add(450, self.settled)
+        return False
+
+    def settled(self):
+        self.settle_pending = False
+        self.update()
         return False
 
     def reload_colour(self):
         self.colour, self.kitty_opacity = kitty_colour()
         for strip in self.strips.values():
             strip.rgba = None
+        if self.keyboard:
+            self.keyboard[2].rgba = None
         self.update()
         return GLib.SOURCE_CONTINUE
 

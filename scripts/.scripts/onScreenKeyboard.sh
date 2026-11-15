@@ -1,8 +1,13 @@
 #!/bin/bash
 # Toggle the on-screen keyboard (SUPER+O). wvkbd, styled like GNOME's
-# keyboard (rounded keys, Adwaita Sans) in the current desktop theme's colours:
-# keys are the background mixed a little towards the text colour, pressed keys
-# the accent. Read on each start, so it follows theme-set.
+# keyboard (rounded keys, Adwaita Sans) in the current desktop theme's colours.
+#
+# Its background is transparent: bar-backdrop.py paints a blurred strip under
+# it that continues the screen (kitty's translucent background, or the colour
+# of the app filling the workspace) and follows workspace switches live, which
+# wvkbd can't (its colours are fixed at start). The keys are the theme's text
+# colour at low opacity, so they suit whatever is behind; pressed keys the
+# accent. On the overlay layer, above that strip. theme-set reopens it.
 
 if pgrep -x wvkbd-mobintl >/dev/null; then
     pkill -x wvkbd-mobintl
@@ -10,24 +15,16 @@ if pgrep -x wvkbd-mobintl >/dev/null; then
 fi
 
 colors=~/.local/state/theme/current/colors.toml
-read -r bg key special accent text < <(python3 - "$colors" <<'EOF' 2>/dev/null
+read -r bg accent text < <(python3 - "$colors" <<'EOF' 2>/dev/null
 import re, sys
 c = dict(re.findall(r'^(\w+)\s*=\s*"#([0-9a-fA-F]{6})"', open(sys.argv[1]).read(), re.M))
-bg, fg, accent = c["background"], c["foreground"], c.get("accent", c.get("color4"))
-
-def mix(a, b, f):
-    a = [int(a[i:i + 2], 16) for i in (0, 2, 4)]
-    b = [int(b[i:i + 2], 16) for i in (0, 2, 4)]
-    return "".join(f"{round(x + (y - x) * f):02x}" for x, y in zip(a, b))
-
-print(bg, mix(bg, fg, 0.16), mix(bg, fg, 0.08), accent, fg)
+print(c["background"], c.get("accent", c.get("color4")), c["foreground"])
 EOF
 )
-# Fallback: GNOME's dark keyboard colours.
-[ -n "$text" ] || read -r bg key special accent text <<<"222226 3a3a3e 2e2e32 3584e4 ffffff"
+[ -n "$text" ] || read -r bg accent text <<<"222226 3584e4 ffffff"
 
-wvkbd-mobintl -L 220 -R 8 --fn "Adwaita Sans 16" \
-    --bg "$bg" --fg "$key" --fg-sp "$special" \
+wvkbd-mobintl -L 220 -R 8 --fn "Adwaita Sans 16" --wayland-layer overlay \
+    --bg 00000000 --fg "${text}24" --fg-sp "${text}14" \
     --press "$accent" --press-sp "$accent" --swipe "$accent" --swipe-sp "$accent" \
     --text "$text" --text-sp "$text" --text-press "$bg" --text-press-sp "$bg" \
     --text-swipe "$bg" --text-swipe-sp "$bg" &
