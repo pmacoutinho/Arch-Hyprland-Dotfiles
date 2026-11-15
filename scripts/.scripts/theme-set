@@ -165,6 +165,32 @@ def hyprpanel_running():
     return bool(r and r.returncode == 0)
 
 
+def contrast(a, b):
+    """WCAG contrast ratio of two #rrggbb colours (1 to 21)."""
+    def luminance(colour):
+        c = [int(colour.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def hover_square(colours):
+    """Hovering a workspace paints a square in the hover colour behind its icon
+    and draws the icon in the highlighted-text colour (a dark one). Catppuccin's
+    and Tokyo Night's hover colours are bright: a clear square. Dracula's,
+    Gruvbox's, Rosé Pine's… are dark greys, often the workspace box's own colour:
+    no square, the icon just darkens. Give those the active workspace's colour."""
+    ws = "theme.bar.buttons.workspaces."
+    hover, text, active = (colours.get(ws + k) for k in
+                           ("hover", "numbered_active_highlighted_text_color", "active"))
+    try:
+        if hover and text and active and contrast(hover, text) < 4.5:
+            colours[ws + "hover"] = active
+    except ValueError:  # not #rrggbb
+        pass
+
+
 def apply_hyprpanel(meta):
     """Merge the HyprPanel theme's colours into config.json.
 
@@ -180,6 +206,7 @@ def apply_hyprpanel(meta):
         source = os.path.join(HYPRPANEL_THEMES, f"{meta['hyprpanel']}.json")
     with open(source) as f:
         colours = {k: v for k, v in json.load(f).items() if k != "theme.bar.buttons.style"}
+    hover_square(colours)
     # theme.toml can override single HyprPanel colours, e.g. the weather module
     # colour, which the VPN IT button uses (modules.scss).
     colours.update(meta.get("hyprpanel_overrides", {}))
@@ -708,6 +735,19 @@ def signal_apps():
             except OSError:
                 pass
     run("pkill", "-USR1", "-x", "nvim")    # Neovim: see lua/plugins/colorscheme.lua
+    # On-screen keyboard (wvkbd): colours are fixed at start, so if it's open,
+    # close it and open it again (onScreenKeyboard.sh reads the theme). Started
+    # by Hyprland, not as our child.
+    def keyboard_open():
+        r = run("pgrep", "-x", "wvkbd-mobintl")
+        return bool(r and r.stdout.strip())
+    if keyboard_open():
+        run("pkill", "-x", "wvkbd-mobintl")
+        for _ in range(20):
+            if not keyboard_open():
+                break
+            time.sleep(0.05)
+        run("hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("sh ~/.scripts/onScreenKeyboard.sh"))')
     try:  # backdrop behind the bar (by pidfile: pkill -f would hit anything mentioning it)
         with open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "bar-backdrop.pid")) as f:
             os.kill(int(f.read().strip()), signal.SIGUSR1)
