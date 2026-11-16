@@ -1,0 +1,110 @@
+// Custom Wayle styles, on top of the built-in ones (reloads live).
+//
+// Sizes copied from HyprPanel (measured on screen, 1x): a 48 px bar, 30 px
+// tall buttons 12 px from the top, 31 px from the screen's ends, 6 px apart,
+// 2 px borders (config.toml), 4 px corners, 9 px inside; text: Noto Sans SemiBold
+// 13.5 px; icons: HyprPanel's Nerd Font glyphs (~/.scripts/wayle-nerd-icons)
+// at its 16 px.
+
+// Room above/below the bar labels: Noto Sans' tops reach above the label's
+// box, and Wayle only repaints the box, so a changing label (the clock's
+// seconds) left bits of the old digits on top of the new ones.
+menubutton.bar-button > button.toggle .bar-button-label {
+  font-size: 13.5px;
+  padding-top: 3px;
+  padding-bottom: 1px;
+}
+
+.bar.top .bar-section {
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+.bar.top .bar-section.bar-left {
+  margin-left: 31px;
+}
+.bar.top .bar-section.bar-right {
+  margin-right: 31px;
+}
+.bar.top .bar-section .bar-item + .bar-item {
+  margin-left: 6px;
+}
+
+menubutton.bar-button > button.toggle,
+.bar-container {
+  min-height: 30px;
+  border-radius: 4px;
+}
+menubutton.bar-button.basic > button.toggle .bar-button-content {
+  margin: 0 9px;
+}
+menubutton.bar-button > button.toggle image {
+  -gtk-icon-size: 16px;
+}
+
+// Workspaces: the active one's square sits inside the border (Wayle's fills
+// the module's whole height, over the border).
+.workspaces {
+  padding: 4px 12px;  // + 22 px squares = 30 px
+  border-radius: 4px;
+}
+.workspace {
+  min-width: 18px;
+  min-height: 22px;
+  margin: 0 5px;
+  border-radius: 3px;
+}
+.workspace-content {
+  margin: 0 2px;
+}
+.workspace-icon,
+.workspace-custom-icon {
+  -gtk-icon-size: 16px;
+}
+
+// Icon to label: HyprPanel left ~7 px between them. Wayle centres icons in a
+// 16 px square, so narrow ones get more room on both sides and need less
+// label margin. Module classes are on an ancestor (.clock,
+// .volume…), and Wayle's own gap rule is specific, hence the long selectors.
+// Always through "> button.toggle": a button's dropdown is inside it too, and
+// must keep Wayle's own look.
+menubutton.bar-button.basic > button.toggle .bar-button-label {
+  margin-left: 6px;
+}
+.network menubutton.bar-button.basic > button.toggle .bar-button-label {
+  margin-left: 7px;
+}
+.clock menubutton.bar-button.basic > button.toggle .bar-button-label,
+.battery menubutton.bar-button.basic > button.toggle .bar-button-label,
+.bluetooth menubutton.bar-button.basic > button.toggle .bar-button-label,
+.volume menubutton.bar-button.basic > button.toggle .bar-button-label {
+  margin-left: 4px;
+}
+.battery menubutton.bar-button.basic > button.toggle image,
+.bluetooth menubutton.bar-button.basic > button.toggle image,
+.volume menubutton.bar-button.basic > button.toggle image {
+  margin-left: -2px;
+  margin-right: -2px;
+}
+// HyprPanel's other icon sizes.
+.network menubutton.bar-button.basic > button.toggle image,
+.custom menubutton.bar-button.basic > button.toggle image {
+  -gtk-icon-size: 14px;
+}
+.notifications menubutton.bar-button.basic > button.toggle image {
+  -gtk-icon-size: 17px;
+  margin: 0 -2px;
+}
+// The dashboard button: a 13 px logo, 11 px each side of it, as HyprPanel.
+.dashboard menubutton.bar-button.basic > button.toggle image {
+  -gtk-icon-size: 13px;
+  margin: 0 2px;
+}
+.bar-container {
+  padding: 0 2px;
+}
+
+// Dropdown headers ("Audio", "Network"…): less room between the icon and the
+// title than Wayle's ~11 px.
+.dropdown-header .dropdown-title image {
+  margin-right: 6px;
+}

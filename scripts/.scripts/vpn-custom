@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""The extra OpenVPN 3 profile offered by the VPN menu (vpn-proton-menu.py),
+configured in the local, untracked ~/.config/vpn-proton-menu/custom-vpn.conf
+(label=…, config=…/profile.ovpn).
+
+Usage:
+  vpn-custom status       JSON for the bar's button ({"text": label, "alt":
+                          "connected" | "reconnecting"}), nothing when no
+                          session exists (the button then hides)
+  vpn-custom disconnect   end the session (prints a line for vpn-notify.sh)
+  vpn-custom label        the profile's label
+
+Asks OpenVPN 3's session manager over D-Bus (~5 ms; `openvpn3 sessions-list`
+takes ~1.5 s).
+"""
+import json
+import os
+import subprocess
+import sys
+
+CONF = os.path.expanduser("~/.config/vpn-proton-menu/custom-vpn.conf")
+
+
+def profile():
+    conf = {}
+    try:
+        with open(CONF) as f:
+            for line in f:
+                key, sep, value = line.strip().partition("=")
+                if sep and not key.startswith("#"):
+                    conf[key.strip()] = value.strip()
+    except OSError:
+        return None
+    if "config" not in conf:
+        return None
+    return conf.get("label", "Custom VPN"), os.path.basename(os.path.expanduser(conf["config"]))
+
+
+def busctl(*args):
+    out = subprocess.run(["busctl", "--system", "--json=short", *args],
+                         capture_output=True, text=True, timeout=3)
+    return json.loads(out.stdout) if out.returncode == 0 and out.stdout else None
+
+
+def session(name):
+    """(object path, connected?) of the profile's session, or None."""
+    sessions = busctl("call", "net.openvpn.v3.sessions", "/net/openvpn/v3/sessions",
+                      "net.openvpn.v3.sessions", "FetchAvailableSessions")
+    for path in (sessions or {}).get("data", [[]])[0]:
+        config = busctl("get-property", "net.openvpn.v3.sessions", path,
+                        "net.openvpn.v3.sessions", "config_name")
+        if config and config.get("data") == name:
+            status = busctl("get-property", "net.openvpn.v3.sessions", path,
+                            "net.openvpn.v3.sessions", "status")
+            # StatusMajor CONNECTION (2), StatusMinor CONN_CONNECTED (7)
+            connected = bool(status) and status.get("data", [])[:2] == [2, 7]
+            return path, connected
+    return None
+
+
+def main():
+    command = sys.argv[1] if len(sys.argv) > 1 else "status"
+    p = profile()
+    if not p:
+        return 1 if command == "disconnect" else 0
+    label, name = p
+    if command == "label":
+        print(label)
+    elif command == "status":
+        s = session(name)
+        if s:
+            print(json.dumps({"text": label, "alt": "connected" if s[1] else "reconnecting",
+                              "tooltip": f"{label}: {'Connected' if s[1] else 'Reconnecting…'}"}))
+    elif command == "disconnect":
+        s = session(name)
+        if not s:
+            print(f"Error: no {label} session found")
+            return 1
+        r = subprocess.run(["openvpn3", "session-manage", "--session-path", s[0], "--disconnect"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(r.stdout + r.stderr)
+            return 1
+        print(f"Disconnected from {label}.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

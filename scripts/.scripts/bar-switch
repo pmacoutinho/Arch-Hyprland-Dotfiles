@@ -1,0 +1,55 @@
+#!/bin/bash
+# Which bar runs: Wayle (default) or HyprPanel (archived 2026-04-27, kept
+# configured so you can switch back).
+#
+#   bar-switch wayle|hyprpanel   stop the other one, start this one, and use it
+#                                from now on (hyprland.lua starts it at login)
+#   bar-switch restart           restart the current one
+#   bar-switch current           print the current one
+#
+# The choice is kept in ~/.local/state/bar. Both bars' configs stay in the
+# dotfiles; theme-set writes colours for both.
+
+state="${XDG_STATE_HOME:-$HOME/.local/state}/bar"
+current() { local b; b=$(cat "$state" 2>/dev/null); [ "$b" = hyprpanel ] && echo hyprpanel || echo wayle; }
+
+stop() {
+    case $1 in
+        wayle) wayle panel stop >/dev/null 2>&1 ;;
+        hyprpanel) ~/.scripts/hyprpanel-quit ;;
+    esac
+}
+
+start() {
+    case $1 in
+        # (`wayle panel start` launches its shell in the background.)
+        wayle) wayle panel start >/dev/null 2>&1 ;;
+        hyprpanel) hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null ;;
+    esac
+}
+
+case $1 in
+    wayle|hyprpanel)
+        other=$([ "$1" = wayle ] && echo hyprpanel || echo wayle)
+        mkdir -p "$(dirname "$state")"
+        echo "$1" > "$state"
+        stop "$other"
+        # Notifications, tray: both bars want the same D-Bus names; give the
+        # old one a moment to let go of them.
+        sleep 0.5
+        start "$1"
+        ;;
+    restart)
+        b=$(current)
+        stop "$b"
+        sleep 0.5
+        start "$b"
+        ;;
+    current|"")
+        current
+        ;;
+    *)
+        echo "usage: bar-switch wayle|hyprpanel|restart|current" >&2
+        exit 2
+        ;;
+esac

@@ -182,9 +182,19 @@ local menu        = "rofi -show drun -scroll-method 0 -terminal kitty -theme ~/.
 -- This replaces exec-once.
 hl.on("hyprland.start", function()
     -- Backdrop behind the transparent bar while an app fills the screen. Started
-    -- before HyprPanel: of two surfaces in the same layer, the later one is on top.
+    -- before the bar: of two surfaces in the same layer, the later one is on top.
     hl.exec_cmd("~/.scripts/bar-backdrop.py")
-    hl.exec_cmd("hyprpanel")
+    -- The bar: Wayle, or HyprPanel if chosen with ~/.scripts/bar-switch
+    -- (it keeps the choice in ~/.local/state/bar). A short delay keeps Wayle
+    -- after the backdrop.
+    local f = io.open((os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/bar", "r")
+    local bar = f and f:read("*l") or "wayle"
+    if f then f:close() end
+    if bar == "hyprpanel" then
+        hl.exec_cmd("hyprpanel")
+    else
+        hl.exec_cmd("sleep 0.5; wayle panel start")
+    end
     hl.exec_cmd("hyprpaper")
     hl.exec_cmd("hypridle")
     -- VPN dropdown (right click on the bar's VPN buttons), kept ready so it opens at once

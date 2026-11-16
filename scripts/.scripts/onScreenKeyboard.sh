@@ -23,7 +23,7 @@ EOF
 )
 [ -n "$text" ] || read -r bg accent text <<<"222226 3584e4 ffffff"
 
-wvkbd-mobintl -L 220 -R 8 --fn "Adwaita Sans 16" --wayland-layer overlay \
+wvkbd-mobintl -L 205 -R 8 --fn "Adwaita Sans 15" --wayland-layer overlay \
     --bg 00000000 --fg "${text}24" --fg-sp "${text}14" \
     --press "$accent" --press-sp "$accent" --swipe "$accent" --swipe-sp "$accent" \
     --text "$text" --text-sp "$text" --text-press "$bg" --text-press-sp "$bg" \

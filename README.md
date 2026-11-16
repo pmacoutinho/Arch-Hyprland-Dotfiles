@@ -11,7 +11,7 @@ Personal configuration files for my Arch Linux setup running the Hyprland Waylan
 | Component | Tool |
 |-----------|------|
 | WM | [Hyprland](https://hyprland.org/) |
-| Bar | [HyprPanel](https://hyprpanel.com/) |
+| Bar | [Wayle](https://wayle.app/) (HyprPanel still configured: `~/.scripts/bar-switch hyprpanel`) |
 | Terminal | [Kitty](https://sw.kovidgoyal.net/kitty/) |
 | Launcher | [Rofi](https://github.com/davatorium/rofi) |
 | Shell Prompt | [Starship](https://starship.rs/) |
@@ -32,11 +32,12 @@ dotfiles/
 ├── bash/              # Shell configuration
 ├── cava/              # Audio visualizer + shaders
 ├── hypr/              # Hyprland, hyprlock, hypridle, hyprpaper
-├── hyprpanel/         # Bar config, custom modules, styling
+├── hyprpanel/         # Previous bar (archived upstream), kept for switching back
 ├── kitty/             # Terminal emulator
 ├── nvim/              # Neovim (git submodule -> Neovim-Configuration)
 ├── rofi/              # Application launcher theme
 ├── scripts/           # Utility scripts (VPN, screen keyboard, etc.)
+├── wayle/             # Bar: layout, modules, VPN buttons (colours: theme-set)
 ├── starship/          # Shell prompt
 └── tmux/              # Terminal multiplexer
 ```
@@ -65,7 +66,7 @@ git clone --recurse-submodules https://github.com/pmacoutinho/Arch-Hyprland-Dotf
 cd Arch-Hyprland-Dotfiles
 
 # Stow everything
-stow -t ~ bash hypr hyprpanel kitty nvim rofi cava starship scripts tmux
+stow -t ~ bash hypr hyprpanel wayle kitty nvim rofi cava starship scripts tmux
 
 # Or stow individual packages
 stow -t ~ hypr
@@ -88,7 +89,8 @@ stow -D -t ~ hypr
 
 ## Post-install
 
-- **HyprPanel weather**: Replace `YOUR_API_KEY_HERE` in `hyprpanel/.config/hyprpanel/config.json` with your [OpenWeatherMap](https://openweathermap.org/api) API key.
+- **Wayle**: install `wayle-bin` (AUR), then run `~/.scripts/wayle-nerd-icons` once (needs `ttf-iosevka-nerd` and `python-fonttools`): it turns HyprPanel's Nerd Font icons into Wayle icons and writes `~/.config/wayle/nerd-icons.toml`, the app → icon table. Its colours (`~/.config/wayle/theme.toml`) are written by `theme-set`; its sizes (copied from HyprPanel) are in `styles/index.scss`. Edits to `config.toml` need `wayle panel restart` (it's a stow symlink, so Wayle doesn't see them); the stylesheet reloads by itself.
+- **HyprPanel weather** (only if you switch back to HyprPanel): Replace `YOUR_API_KEY_HERE` in `hyprpanel/.config/hyprpanel/config.json` with your [OpenWeatherMap](https://openweathermap.org/api) API key.
 - **Wallpaper**: Place your wallpaper at `~/.config/wallpapers/sushi-dark.png` or update the path in `hypr/.config/hypr/hyprpaper.conf`.
 - **Tmux plugins**: Install [TPM](https://github.com/tmux-plugins/tpm), then press `prefix + I` to install plugins.
 - **Neovim**: On first launch [lazy.nvim](https://github.com/folke/lazy.nvim) installs the plugins and `nvim-treesitter` compiles its parsers. Let it finish, then restart. Check with `:checkhealth`.
@@ -117,19 +119,20 @@ git submodule update --remote nvim/.config/nvim
 
 ## Custom VPN Module
 
-HyprPanel includes a custom VPN module with three states:
+The bar has three VPN buttons, one shown at a time (`wayle/.config/wayle/config.toml`):
 
-| State | Color | Description |
+| State | Colour | Description |
 |-------|-------|-------------|
-| Proton VPN | `#a6e3a1` | Connected via Proton VPN |
-| Custom VPN | `#b4befe` | Connected via OpenVPN |
-| Disconnected | `#f38ba8` | No VPN active |
+| Proton VPN | theme green | Connected via Proton VPN |
+| Custom VPN | theme blue | Connected via an OpenVPN 3 profile (`~/.config/vpn-proton-menu/custom-vpn.conf`, local) |
+| Disconnected | theme red | No VPN active |
 
-Clicking the module connects/disconnects automatically.
+Left click connects/disconnects; right click opens the VPN menu (`scripts/.scripts/vpn-proton-menu.py`).
 
 ## Acknowledgments
 
 - [Hyprland](https://hyprland.org/)
+- [Wayle](https://wayle.app/)
 - [HyprPanel](https://hyprpanel.com/)
 - [Catppuccin](https://github.com/catppuccin)
 - [Rosé Pine](https://rosepinetheme.com/)

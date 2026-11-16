@@ -2,8 +2,8 @@
 # Run by hyprland.lua after a mirror/extend switch (Fn+F3 / SUPER+P), when an
 # external screen appears or goes away, and at login.
 #  - A screen that just appeared is a normal screen at first, so apps get to
-#    know it. In mirror mode, mirror it once its HyprPanel bar and wallpaper
-#    are on it: a bar HyprPanel builds after that lands on the laptop panel
+#    know it. In mirror mode, mirror it once its bar and wallpaper are on
+#    it: a bar HyprPanel builds after that lands on the laptop panel
 #    instead (two bars there), while one built before stays with the screen
 #    and shows up instantly whenever it's extended.
 #  - Extended: if the screen's bar isn't there right away, make HyprPanel
@@ -13,7 +13,10 @@
 #    layout, skipping mirrors), and check every screen has a wallpaper and one
 #    bar. No wallpaper means the screen was never announced to apps: switch it
 #    off and on (reconnect_output in hyprland.lua; black for ~2s, so only
-#    then). Bars wrong: rebuild them as above, else restart HyprPanel.
+#    then). Bars wrong: rebuild them as above, else restart the bar.
+# Bars: Wayle's wayle-bar-<screen> or HyprPanel's bar-0, bar-1… (whichever
+# runs, see ~/.scripts/bar-switch). Wayle follows mirror <-> extend by itself;
+# the HyprPanel-only nudge is skipped for it.
 # A newer run (you switched again) makes this one stop, so it never acts on a
 # layout you've already left.
 
@@ -49,7 +52,7 @@ settle() {
 # Only checked for the apps that are running; mirrors have no layers.
 problems() {
     local bar=false wallpaper=false
-    pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' >/dev/null && bar=true
+    { pgrep -f '^/usr/bin/bash /usr/share/hyprpanel/hyprpanel-app' || pgrep -x wayle; } >/dev/null && bar=true
     pgrep -x hyprpaper >/dev/null && wallpaper=true
     hyprctl monitors all -j | jq -r --argjson layers "$(hyprctl layers -j)" \
         --argjson bar "$bar" --argjson wallpaper "$wallpaper" '
@@ -57,7 +60,7 @@ problems() {
         | select(test("^(HEADLESS|tab$)") | not) as $m
         | [$layers[$m].levels[]?[]? | .namespace] as $ns
         | (if $wallpaper and ($ns | index("hyprpaper") | not) then "wallpaper \($m)" else empty end),
-          (if $bar and ([$ns[] | select(test("^bar-[0-9]+$"))] | length) != 1 then "bar \($m)" else empty end)'
+          (if $bar and ([$ns[] | select(test("^(bar-[0-9]+|wayle-bar-.+)$"))] | length) != 1 then "bar \($m)" else empty end)'
 }
 
 # External screens currently shown as normal screens.
@@ -81,6 +84,7 @@ lasting() {
 # HyprPanel rebuilds all its bars ~0.3s after Hyprland reports a screen
 # added/removed.
 rebuild_bars() {
+    [ "$(~/.scripts/bar-switch current)" = hyprpanel ] || return 0
     hyprctl output create headless HEADLESS-BARS >/dev/null
     sleep 0.2
     hyprctl output remove HEADLESS-BARS >/dev/null
@@ -130,6 +134,5 @@ if grep -q '^bar' <<<"$p"; then
 fi
 if grep -q '^bar' <<<"$p"; then
     superseded && exit 0
-    ~/.scripts/hyprpanel-quit  # (waits until it has quit)
-    hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))' >/dev/null
+    ~/.scripts/bar-switch restart
 fi

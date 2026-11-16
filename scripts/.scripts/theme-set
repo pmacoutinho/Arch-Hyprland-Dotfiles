@@ -250,6 +250,75 @@ def network_icons(colours):
             f.write(re.sub(r"fill:#[0-9a-fA-F]{6}", f"fill:{colour}", svg))
 
 
+WAYLE_THEME = os.path.join(HOME, ".config/wayle/theme.toml")
+# HyprPanel button -> Wayle module, so the bar looks the same in Wayle.
+WAYLE_MODULES = {
+    "dashboard": "dashboard", "media": "media", "windowtitle": "window-title",
+    "notifications": "notifications", "systray": "systray", "volume": "volume",
+    "network": "network", "bluetooth": "bluetooth", "battery": "battery", "clock": "clock",
+}
+
+
+def apply_wayle(theme, colours):
+    """Wayle's colours (~/.config/wayle/theme.toml, imported by its config.toml;
+    it reloads live, no restart): its palette, from HyprPanel's menu colours
+    (so dropdowns look like HyprPanel's menus) and colors.toml, and each bar
+    button's colours from the HyprPanel theme (with theme.toml's overrides),
+    so the bar looks like HyprPanel's. The palette's red/green/blue are the VPN
+    buttons' colours (HyprPanel's cpu/netstat/weather, as in modules.scss);
+    Wayle's config.toml uses them by name for its custom VPN modules."""
+    if not os.path.isdir(os.path.dirname(WAYLE_THEME)):
+        return
+    try:
+        palette = load_toml(os.path.join(THEMES, theme, "colors.toml"))
+    except (OSError, ValueError):
+        palette = {}
+    c = lambda key, default=None: colours.get(f"theme.bar.{key}", default)  # noqa: E731
+    pal = {
+        "bg": c("menus.background", palette.get("background")),
+        "surface": c("menus.cards", palette.get("lighter_background")),
+        "elevated": palette.get("selection") or c("menus.cards"),
+        "fg": c("menus.text", palette.get("foreground")),
+        "fg-muted": palette.get("muted") or c("menus.dimtext"),
+        "primary": palette.get("accent") or c("buttons.borderColor"),
+        "red": c("buttons.modules.cpu.text", palette.get("red")),
+        "yellow": palette.get("yellow"),
+        "green": c("buttons.modules.netstat.text", palette.get("green")),
+        "blue": c("buttons.modules.weather.text", palette.get("blue")),
+    }
+    lines = ["# Written by ~/.scripts/theme-set for the current theme. Don't edit.", "",
+             "[styling.palette]"]
+    lines += [f'{k} = "{v}"' for k, v in pal.items() if v]
+    for hp, wayle in WAYLE_MODULES.items():
+        b = lambda key: c(f"buttons.{hp}.{key}")  # noqa: E731
+        values = {
+            "icon-color": b("icon") or b("customIcon"),
+            "label-color": b("text") or b("total"),
+            "border-color": b("border"),
+            "button-bg-color": b("background"),
+        }
+        lines += ["", f"[modules.{wayle}]"]
+        lines += [f'{k} = "{v}"' for k, v in values.items() if v]
+    ws = lambda key: c(f"buttons.workspaces.{key}")  # noqa: E731
+    lines += ["", "[modules.hyprland-workspaces]"]
+    for k, v in (("active-color", ws("active")), ("occupied-color", ws("occupied")),
+                 ("empty-color", ws("available")), ("container-bg-color", ws("background")),
+                 ("border-color", ws("border"))):
+        if v:
+            lines.append(f'{k} = "{v}"')
+    text = "\n".join(lines) + "\n"
+    try:
+        with open(WAYLE_THEME) as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    # Whole file at once (Wayle reloads as soon as the directory changes).
+    with open(WAYLE_THEME + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(WAYLE_THEME + ".tmp", WAYLE_THEME)
+
+
 def apply_gtk4(theme, meta):
     source = meta.get("gtk4", "")
     if source == "generate":
@@ -769,6 +838,7 @@ def apply(theme):
         set_background(theme, background, meta)
     apply_hyprland()
     colours, _ = apply_hyprpanel(meta)
+    apply_wayle(theme, colours)
     network_icons(colours)
     apply_gtk4(theme, meta)
     apply_color_scheme(theme)

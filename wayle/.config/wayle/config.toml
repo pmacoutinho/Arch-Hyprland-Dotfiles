@@ -1,0 +1,179 @@
+# Wayle (https://wayle.app), replacing HyprPanel (archived 2026-04-27) with
+# the same layout and look. Edits here need `wayle panel restart` (this file
+# is a stow symlink, which Wayle doesn't watch); styles/ and theme.toml
+# reload by themselves.
+#
+# Colours: theme.toml next to this file, written by ~/.scripts/theme-set for
+# the current desktop theme (palette + each button's colours, taken from the
+# theme's HyprPanel colours). Not in the repo. The palette's red/green/blue are
+# the VPN buttons' colours (as modules.scss did for HyprPanel), so the custom
+# modules below can use them by name.
+#
+# Switch bars: ~/.scripts/bar-switch wayle|hyprpanel
+
+# nerd-icons.toml: HyprPanel's application icons (Nerd Font glyphs, cm-nf-*),
+# generated with the icons by ~/.scripts/wayle-nerd-icons. Not in the repo.
+imports = ["theme.toml", "nerd-icons.toml"]
+
+[general]
+# What HyprPanel actually used (its default font isn't installed).
+font-sans = "Noto Sans"
+
+[bar]
+# Transparent: ~/.scripts/bar-backdrop.py paints a blurred strip behind the
+# bar when an app fills the screen.
+background-opacity = 0
+# Sizes and text: styles/index.scss (copied from HyprPanel in px).
+# HyprPanel's default button look: icon and label in the module's colour,
+# a border in it too, on the module's background.
+button-variant = "basic"
+button-rounding = "md"
+button-border-location = "all"
+button-border-width = 2
+button-label-weight = "semibold"
+dropdown-autohide = true
+
+[[bar.layout]]
+monitor = "*"
+left = ["dashboard", "media", "window-title"]
+center = ["notifications", "hyprland-workspaces"]
+right = ["systray", "volume", "custom-vpn-proton", "custom-vpn-it", "custom-vpn-off",
+         "network", "bluetooth", "battery", "clock"]
+
+[styling]
+rounding = "md"
+
+[osd]
+position = "right"
+margin = 40.0
+
+[wallpaper]
+# hyprpaper does wallpapers (theme-set).
+engine-enabled = false
+
+[modules.clock]
+icon-name = "cm-nf-calendar-symbolic"
+format = "%a %d %b  %H:%M:%S"
+border-show = true
+dropdown-show-seconds = true
+
+[modules.weather]
+location = "Aveiro"
+units = "metric"
+time-format = "24h"
+
+[modules.dashboard]
+border-show = true
+icon-override = "cm-nf-arch-symbolic"
+
+[modules.media]
+border-show = true
+# As HyprPanel: "artist - title", cut at 30 characters + "..." (Wayle's own
+# limit is a width, so it's off and the template cuts).
+format = "{%- set t = (artist ~ ' - ' if artist else '') ~ title -%}{{ t[:30] ~ '...' if t|length > 30 else t }}"
+label-max-length = 0
+
+[modules.window-title]
+border-show = true
+# The application's name, as HyprPanel (format, cut at 50: nerd-icons.toml).
+label-max-length = 0
+
+[modules.notifications]
+border-show = true
+# Bell only, like HyprPanel (no count).
+label-show = false
+icon-name = "cm-nf-bell-symbolic"
+icon-unread = "cm-nf-bell-badge-symbolic"
+icon-dnd = "cm-nf-bell-off-symbolic"
+popup-position = "top-right"
+popup-margin-x = 8
+popup-margin-y = 8
+
+[modules.hyprland-workspaces]
+# Like HyprPanel's: application icons only, the active workspace highlighted.
+display-mode = "none"
+app-icons-show = true
+active-indicator = "background"
+border-show = true
+
+[modules.systray]
+border-show = true
+
+[modules.volume]
+border-show = true
+level-icons = ["cm-nf-volume-low-symbolic", "cm-nf-volume-medium-symbolic", "cm-nf-volume-high-symbolic"]
+icon-muted = "cm-nf-volume-off-symbolic"
+
+[modules.network]
+border-show = true
+label-max-length = 0
+# The icon theme's (Caticons), as HyprPanel had.
+wifi-signal-icons = ["network-wireless-signal-weak-symbolic", "network-wireless-signal-ok-symbolic",
+                     "network-wireless-signal-good-symbolic", "network-wireless-signal-excellent-symbolic"]
+wifi-connected-icon = "network-wireless-signal-excellent-symbolic"
+wifi-offline-icon = "network-wireless-disconnected-symbolic"
+wifi-disabled-icon = "network-wireless-disabled-symbolic"
+wifi-acquiring-icon = "network-wireless-acquiring-symbolic"
+wired-connected-icon = "network-wired-symbolic"
+wired-acquiring-icon = "network-wired-acquiring-symbolic"
+wired-disconnected-icon = "network-wired-disconnected-symbolic"
+
+[modules.bluetooth]
+border-show = true
+# Icons: Wayle's own (one per state).
+
+[modules.battery]
+border-show = true
+level-icons = ["cm-nf-battery-0-symbolic", "cm-nf-battery-10-symbolic", "cm-nf-battery-20-symbolic", "cm-nf-battery-30-symbolic", "cm-nf-battery-40-symbolic", "cm-nf-battery-50-symbolic", "cm-nf-battery-60-symbolic", "cm-nf-battery-70-symbolic", "cm-nf-battery-80-symbolic", "cm-nf-battery-90-symbolic", "cm-nf-battery-100-symbolic"]
+charging-icon = "cm-nf-battery-charging-symbolic"
+alert-icon = "cm-nf-battery-alert-symbolic"
+
+# VPN buttons. Right click: the VPN menu (vpn-proton-menu.py, kept running in
+# the background; this just signals it). Colours: palette green/blue/red.
+
+[[modules.custom]]
+id = "vpn-proton"
+command = "nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q '^vpn$' && echo '{\"alt\": \"connected\"}'"
+interval-ms = 5000
+format = "ProtonVPN"
+tooltip-format = "ProtonVPN: Connected"
+hide-if-empty = true
+icon-name = "cm-nf-lock-symbolic"
+border-show = true
+icon-color = "green"
+label-color = "green"
+border-color = "green"
+left-click = "~/.scripts/vpn-notify.sh 'Proton VPN' 'Disconnecting' ~/.scripts/vpn-proton-disconnect.sh"
+right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+
+[[modules.custom]]
+# The extra OpenVPN 3 profile (label and profile in the local
+# ~/.config/vpn-proton-menu/custom-vpn.conf; see ~/.scripts/vpn-custom).
+id = "vpn-it"
+command = "~/.scripts/vpn-custom status"
+interval-ms = 5000
+format = "{{ text }}"
+tooltip-format = "{{ tooltip }}"
+hide-if-empty = true
+icon-name = "cm-nf-lock-symbolic"
+border-show = true
+icon-color = "blue"
+label-color = "blue"
+border-color = "blue"
+left-click = "~/.scripts/vpn-notify.sh \"$(~/.scripts/vpn-custom label)\" 'Disconnecting' ~/.scripts/vpn-custom disconnect"
+right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+
+[[modules.custom]]
+id = "vpn-off"
+command = "nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q '^vpn$' || [ -n \"$(~/.scripts/vpn-custom status)\" ] || echo '{\"alt\": \"disconnected\"}'"
+interval-ms = 5000
+format = "VPN"
+tooltip-format = "VPN: Disconnected"
+hide-if-empty = true
+icon-name = "cm-nf-lock-open-symbolic"
+border-show = true
+icon-color = "red"
+label-color = "red"
+border-color = "red"
+left-click = "~/.scripts/vpn-notify.sh 'Proton VPN' 'Connecting to Portugal' ~/.scripts/vpn-proton-connect.sh"
+right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"

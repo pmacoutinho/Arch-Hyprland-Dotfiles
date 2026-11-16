@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Backdrop behind the (transparent) HyprPanel bar while an app fills the screen.
+"""Backdrop behind the (transparent) bar while an app fills the screen.
 
-HyprPanel's bar is transparent. When the focused workspace of a monitor has a
-window filling it (fullscreen/maximised, or a tiled window covering the whole
-area under the bar), this paints the bar's strip to continue that app upwards:
-for kitty, the theme's kitty background at kitty's background_opacity (times
-the window's opacity rule); for other apps, the colour of their own top row
-(e.g. Firefox's tab strip), sampled from the screen just under the bar. It's a layer-shell strip just under the bar:
-no window can be under it, and it takes no clicks.
+The bar (Wayle, or HyprPanel: ~/.scripts/bar-switch) is transparent. When the
+focused workspace of a monitor has a window filling it (fullscreen/maximised,
+or a tiled window covering the whole area under the bar), this paints the bar's
+strip to continue that app upwards: for kitty, the theme's kitty background at
+kitty's background_opacity (times the window's opacity rule); for other apps,
+the colour of their own top row (e.g. Firefox's tab strip), sampled from the
+screen just under the bar. It's a layer-shell strip just under the bar: no
+window can be under it, and it takes no clicks.
 
 The on-screen keyboard (wvkbd, onScreenKeyboard.sh) has a transparent
 background: while it's open, a second strip under it continues the screen the
@@ -101,9 +102,12 @@ def window_opacity(client, kitty_opacity):
 
 
 def sample_top_colour(window):
-    """Most common colour of the window's top pixel row, from the screen."""
+    """Most common colour of the right quarter of the window's top pixel row,
+    from the screen: the header's background. (The whole row isn't safe: in
+    Nautilus the path bar can be wider than the header around it.)"""
     x, y = window["at"]
-    width = window["size"][0]
+    width = window["size"][0] // 4
+    x += window["size"][0] - width
     try:
         ppm = subprocess.run(["grim", "-s", "1", "-t", "ppm", "-g", f"{x},{y + 1} {width}x1", "-"],
                              capture_output=True, timeout=2).stdout
@@ -225,29 +229,33 @@ class Backdrop:
         GLib.timeout_add(1500, self.keep_under_bar)
 
     def keep_under_bar(self, attempt=0):
-        """If a HyprPanel bar was created before the strip (so it's drawn under
-        it), hide and show that bar: shown again, it's created on top. Only
-        happens when the strip is (re)created after the bar (e.g. a screen
-        added or extended), not at login. Restarts HyprPanel if that fails."""
-        below = []
-        for monitor in (hyprctl("layers") or {}).values():
+        """If a bar was created before the strip (so it's drawn under it), hide
+        and show that bar: shown again, it's created on top. Only happens when
+        the strip is (re)created after the bar (e.g. a screen added or
+        extended), not at login. Restarts the bar if that fails. Bars: Wayle's
+        wayle-bar-<screen>, HyprPanel's bar-0, bar-1…"""
+        below = []  # (namespace, screen)
+        for screen, monitor in (hyprctl("layers") or {}).items():
             for level in monitor.get("levels", {}).values():
                 names = [layer["namespace"] for layer in level]
                 if "bar-backdrop" in names:
-                    below += [n for n in names[:names.index("bar-backdrop")]
-                              if n.startswith("bar-") and n != "bar-backdrop"]
+                    below += [(n, screen) for n in names[:names.index("bar-backdrop")]
+                              if re.match(r"^(bar-\d+|wayle-bar-.+)$", n)]
         if not below:
             return False
         if attempt == 0:
-            for bar in below:
-                for _ in range(2):  # hide, show
-                    # (the hyprpanel wrapper joins its arguments into one, so call astal)
-                    subprocess.run(["astal", "-i", "hyprpanel", "-t", bar], capture_output=True, timeout=10)
+            for bar, screen in below:
+                if bar.startswith("wayle-bar-"):
+                    for action in ("hide", "show"):
+                        subprocess.run(["wayle", "panel", action, screen], capture_output=True, timeout=10)
+                else:
+                    for _ in range(2):  # hide, show
+                        # (the hyprpanel wrapper joins its arguments into one, so call astal)
+                        subprocess.run(["astal", "-i", "hyprpanel", "-t", bar], capture_output=True, timeout=10)
             GLib.timeout_add(700, self.keep_under_bar, 1)
         else:
-            subprocess.run([os.path.expanduser("~/.scripts/hyprpanel-quit")], capture_output=True, timeout=10)
-            subprocess.run(["hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("hyprpanel"))'],
-                           capture_output=True, timeout=10)
+            subprocess.run([os.path.expanduser("~/.scripts/bar-switch"), "restart"],
+                           capture_output=True, timeout=20)
         return False
 
     def update(self):

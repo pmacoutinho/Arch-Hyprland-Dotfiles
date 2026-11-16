@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""HyprPanel's bar icons for Wayle: the same Nerd Font glyphs HyprPanel showed,
+turned into symbolic SVG icons and imported into Wayle (cm-nf-<name>-symbolic),
+plus ~/.config/wayle/nerd-icons.toml (imported by config.toml) mapping
+applications to them for the workspaces, window title and media buttons, as
+HyprPanel's built-in table (and the few apps added in its config) did.
+Applications HyprPanel had no icon for get Wayle's own (its built-in table,
+else its generic icon), so new installs follow Wayle.
+
+Run once after installing (bootstrap does), and again after changing the
+tables below. Needs a Nerd Font (Iosevka Nerd Font) and python-fonttools.
+
+Each icon is a 1 em square centred on its glyph, so at an icon size of N px
+it is as big as the glyph in N px text (HyprPanel: mostly 16 px).
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.svgPathPen import SVGPathPen
+from fontTools.ttLib import TTFont
+
+FONT = "Iosevka Nerd Font"
+TOML = os.path.expanduser("~/.config/wayle/nerd-icons.toml")
+
+# Bar buttons (names used in config.toml).
+MODULE_ICONS = {
+    "arch": 0xF303,
+    "bell": 0xF009A, "bell-badge": 0xF116B, "bell-off": 0xF009B,
+    "volume-high": 0xF057E, "volume-medium": 0xF0580, "volume-low": 0xF057F,
+    "volume-off": 0xF075F,
+    "battery-0": 0xF008E, "battery-10": 0xF007A, "battery-20": 0xF007B,
+    "battery-30": 0xF007C, "battery-40": 0xF007D, "battery-50": 0xF007E,
+    "battery-60": 0xF007F, "battery-70": 0xF0080, "battery-80": 0xF0081,
+    "battery-90": 0xF0082, "battery-100": 0xF0079,
+    "battery-charging": 0xF0084, "battery-alert": 0xF0083,
+    "calendar": 0xF0E17,
+    "lock": 0xF023, "lock-open": 0xF09C,
+}
+
+# Applications, first match wins: (window class, case-insensitive substring,
+# or "title:" + window title substring), glyph -- or the name of an icon
+# Wayle already has, to use that instead. HyprPanel's own table, after the
+# apps added in its config (and the Wayle icons preferred over its glyphs).
+APPS = [
+    ("obsidian", "si-obsidian-symbolic"), ("proton.vpn.app.gtk", "ld-lock-symbolic"),
+    ("stremio", "ld-film-symbolic"), ("Beeper", "ld-message-circle-symbolic"),
+    ("ente", "ld-image-symbolic"), ("filezilla", "si-filezilla-symbolic"),
+    ("tidal-hifi", "si-tidal-symbolic"), ("qBittorrent", "si-qbittorrent-symbolic"),
+    ("brave-browser", "si-brave-symbolic"),
+    ("codium", 0xF372), ("rofi", 0xEA6D),
+    ("chromium", 0xF268), ("firefox", 0xF0239), ("floorp", 0xF0239),
+    ("google-chrome", 0xF268), ("microsoft-edge", 0xF01E9), ("opera", 0xF26A),
+    ("thorium", 0xF059F), ("tor-browser", 0xF371), ("vivaldi", 0xF059F),
+    ("waterfox", 0xF059F), ("zen", 0xEBF8), ("alacritty", 0xE795),
+    ("com.mitchellh.ghostty", 0xF02A0), ("foot", 0xF0F52),
+    ("gnome-terminal", 0xE795), ("kitty", 0xF011B), ("konsole", 0xE795),
+    ("tilix", 0xE795), ("urxvt", 0xE795), ("wezterm", 0xE795), ("xterm", 0xE795),
+    ("DBeaver", 0xF472), ("android-studio", 0xF0034), ("atom", 0xE764),
+    ("code", 0xF0A1E), ("docker", 0xF21F), ("eclipse", 0xE79E), ("emacs", 0xE632),
+    ("jetbrains-idea", 0xE7B5), ("jetbrains-phpstorm", 0xE862),
+    ("jetbrains-pycharm", 0xE877), ("jetbrains-webstorm", 0xE8E4),
+    ("neovide", 0xF36F), ("neovim", 0xF36F), ("netbeans", 0xE79B),
+    ("sublime-text", 0xE7AA), ("vim", 0xE7C5), ("vscode", 0xF0A1E),
+    ("discord", 0xF1FF), ("legcord", 0xF1FF), ("webcord", 0xF1FF),
+    ("org.telegram.desktop", 0xE217), ("skype", 0xF04AF), ("slack", 0xF04B1),
+    ("teams", 0xF02BB), ("teamspeak", 0xEDC3), ("telegram-desktop", 0xF2C6),
+    ("thunderbird", 0xF370), ("vesktop", 0xF1FF), ("whatsapp", 0xF05A3),
+    ("doublecmd", 0xF0770), ("krusader", 0xF0770), ("nautilus", 0xF0770),
+    ("nemo", 0xF0770), ("org.kde.dolphin", 0xF07C), ("pcmanfm", 0xF0770),
+    ("ranger", 0xF0770), ("thunar", 0xF0770), ("mpv", 0xF36E), ("plex", 0xF06BA),
+    ("rhythmbox", 0xF04C3), ("ristretto", 0xF02E9), ("spotify", 0xF04C7),
+    ("vlc", 0xF057C), ("blender", 0xF00AB), ("gimp", 0xF338),
+    ("inkscape", 0xF33B), ("krita", 0xF33D), ("kdenlive", 0xF33C),
+    ("csgo", 0xF0EB5), ("dota2", 0xF0EB5), ("heroic", 0xF0EB5),
+    ("lutris", 0xF0EB5), ("minecraft", 0xF0373), ("steam", 0xF1B6),
+    ("evernote", 0xEF98), ("libreoffice-base", 0xF377),
+    ("libreoffice-calc", 0xF378), ("libreoffice-draw", 0xF379),
+    ("libreoffice-impress", 0xF37A), ("libreoffice-math", 0xF37B),
+    ("libreoffice-writer", 0xF37C), ("obsidian", 0xF14E7), ("sioyek", 0xE28A),
+    ("libreoffice", 0xF376), ("title:LibreOffice", 0xF376), ("soffice", 0xF376),
+    ("dropbox", 0xF01E3),
+]
+
+# The window title shows the application's name, as HyprPanel did: the first
+# entry whose text is in the lower-cased window class (or equals it, "=..."),
+# else the class with a capital first letter; "Desktop" with no window. Your
+# HyprPanel names first, then HyprPanel's own table (minus its entries that
+# could never match: capitals or "title:").
+NAMES = [
+    ("stremio", "Stremio"), ("codium", "VSCodium"), ("proton.vpn.app.gtk", "ProtonVPN"),
+    ("beeper", "Beeper"), ("ente", "Ente"), ("filezilla", "FileZilla"), ("tidal-hifi", "TIDAL"),
+    ("rofi", "Rofi"), ("brave-browser", "Brave Browser"), ("chromium", "Chromium"),
+    ("firefox", "Firefox"), ("floorp", "Floorp"), ("google-chrome", "Google Chrome"),
+    ("microsoft-edge", "Edge"), ("opera", "Opera"), ("thorium", "Thorium"),
+    ("tor-browser", "Tor Browser"), ("vivaldi", "Vivaldi"), ("waterfox", "Waterfox"),
+    ("zen", "Zen Browser"), ("=st", "st Terminal"), ("alacritty", "Alacritty"),
+    ("com.mitchellh.ghostty", "Ghostty"), ("foot", "Foot Terminal"),
+    ("gnome-terminal", "GNOME Terminal"), ("kitty", "Kitty Terminal"), ("konsole", "Konsole"),
+    ("tilix", "Tilix"), ("urxvt", "URxvt"), ("wezterm", "Wezterm"), ("xterm", "XTerm"),
+    ("android-studio", "Android Studio"), ("atom", "Atom"), ("code", "Visual Studio Code"),
+    ("docker", "Docker"), ("eclipse", "Eclipse"), ("emacs", "Emacs"),
+    ("jetbrains-idea", "IntelliJ IDEA"), ("jetbrains-phpstorm", "PhpStorm"),
+    ("jetbrains-pycharm", "PyCharm"), ("jetbrains-webstorm", "WebStorm"),
+    ("neovide", "Neovide"), ("neovim", "Neovim"), ("netbeans", "NetBeans"),
+    ("sublime-text", "Sublime Text"), ("vim", "Vim"), ("vscode", "VS Code"),
+    ("discord", "Discord"), ("legcord", "Legcord"), ("webcord", "WebCord"),
+    ("org.telegram.desktop", "Telegram"), ("skype", "Skype"), ("slack", "Slack"),
+    ("teams", "Microsoft Teams"), ("teamspeak", "TeamSpeak"), ("telegram-desktop", "Telegram"),
+    ("thunderbird", "Thunderbird"), ("vesktop", "Vesktop"), ("whatsapp", "WhatsApp"),
+    ("doublecmd", "Double Commander"), ("krusader", "Krusader"),
+    ("nautilus", "Files (Nautilus)"), ("nemo", "Nemo"), ("org.kde.dolphin", "Dolphin"),
+    ("pcmanfm", "PCManFM"), ("ranger", "Ranger"), ("thunar", "Thunar"), ("mpv", "MPV"),
+    ("plex", "Plex"), ("rhythmbox", "Rhythmbox"), ("ristretto", "Ristretto"),
+    ("spotify", "Spotify"), ("vlc", "VLC Media Player"), ("blender", "Blender"),
+    ("gimp", "GIMP"), ("inkscape", "Inkscape"), ("krita", "Krita"), ("kdenlive", "Kdenlive"),
+    ("csgo", "CS:GO"), ("dota2", "Dota 2"), ("heroic", "Heroic Games Launcher"),
+    ("lutris", "Lutris"), ("minecraft", "Minecraft"), ("steam", "Steam"),
+    ("evernote", "Evernote"), ("libreoffice-base", "LibreOffice Base"),
+    ("libreoffice-calc", "LibreOffice Calc"), ("libreoffice-draw", "LibreOffice Draw"),
+    ("libreoffice-impress", "LibreOffice Impress"), ("libreoffice-math", "LibreOffice Math"),
+    ("libreoffice-writer", "LibreOffice Writer"), ("obsidian", "Obsidian"),
+    ("sioyek", "Sioyek"), ("libreoffice", "LibreOffice Default"),
+    ("soffice", "LibreOffice Base Selector"), ("dropbox", "Dropbox"),
+]
+
+_fonts = {}
+
+
+def glyph_svg(cp):
+    """1 em square SVG of the glyph for codepoint cp (from the Nerd Font, or
+    whichever font fontconfig picks for it, as HyprPanel's text did)."""
+    path = subprocess.run(["fc-match", "-f", "%{file}", f"{FONT}:charset={cp:x}"],
+                          capture_output=True, text=True).stdout
+    if path not in _fonts:
+        _fonts[path] = TTFont(path)
+    font = _fonts[path]
+    name = font.getBestCmap().get(cp)
+    if not name:
+        raise SystemExit(f"no glyph for U+{cp:X} (is {FONT} installed?)")
+    glyphs = font.getGlyphSet()
+    em = font["head"].unitsPerEm
+    bounds = BoundsPen(glyphs)
+    glyphs[name].draw(bounds)
+    x0, y0, x1, y1 = bounds.bounds
+    pen = SVGPathPen(glyphs)
+    glyphs[name].draw(pen)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    # Font units have y up; flip, and centre a 1 em view box on the glyph.
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" '
+            f'viewBox="{cx - em / 2:g} {-cy - em / 2:g} {em} {em}">'
+            f'<path fill="#000" transform="scale(1,-1)" d="{pen.getCommands()}"/></svg>\n')
+
+
+def slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def globs(match, classes):
+    """HyprPanel matched classes case-insensitively anywhere in the name. The
+    workspaces' patterns take [kK] classes; the window title's and media's
+    don't, so those get the lower-case and Capitalised spellings."""
+    kind, _, text = match.rpartition(":")
+    prefix = kind + ":" if kind else ""
+    if classes:
+        return [prefix + "*" + "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else c
+                                       for c in text) + "*"]
+    return list(dict.fromkeys(f"{prefix}*{t}*" for t in (text.lower(), text.capitalize())))
+
+
+def window_title_template():
+    """Jinja template (Wayle's window-title format) giving HyprPanel's label:
+    the application's name from NAMES, cut at 50 characters + "..."."""
+    names = json.dumps([list(n) for n in NAMES], ensure_ascii=False)
+    return ('{%- if not app -%}Desktop{%- else -%}'
+            '{%- set ns = namespace(n="") -%}{%- set c = app|lower -%}'
+            '{%- for k, v in ' + names + ' -%}'
+            '{%- if not ns.n and ((k[1:] == c) if k[:1] == "=" else (k in c)) -%}'
+            '{%- set ns.n = v -%}{%- endif -%}{%- endfor -%}'
+            '{%- set t = ns.n or (app[:1]|upper ~ app[1:]) -%}'
+            '{{ t[:50] ~ "..." if t|length > 50 else t }}{%- endif -%}')
+
+
+def main():
+    icons = {name: cp for name, cp in MODULE_ICONS.items()}
+    mapping = []
+    for match, cp in APPS:
+        if isinstance(cp, str):
+            mapping.append((match, cp))
+            continue
+        name = f"app-{cp:x}"
+        icons[name] = cp
+        mapping.append((match, f"cm-nf-{name}-symbolic"))
+
+    tmp = tempfile.mkdtemp()
+    try:
+        for name, cp in icons.items():
+            with open(os.path.join(tmp, f"nf-{name}.svg"), "w") as f:
+                f.write(glyph_svg(cp))
+        subprocess.run(["wayle", "icons", "import", tmp], check=True,
+                       stdout=subprocess.DEVNULL)
+    finally:
+        shutil.rmtree(tmp)
+
+    lines = ["# Generated by ~/.scripts/wayle-nerd-icons: HyprPanel's application icons.", ""]
+    for table, classes in (("modules.hyprland-workspaces.app-icon-map", True),
+                           ("modules.window-title.icon-mappings", False),
+                           ("modules.media.player-icons", False)):
+        seen = set()
+        entries = ""
+        for match, icon in mapping:
+            for pattern in globs(match, classes):
+                if pattern not in seen:
+                    seen.add(pattern)
+                    entries += f'"{pattern}" = "{icon}"\n'
+        lines += [f"[{table}]", entries]
+    lines += ["[modules.window-title]", f"format = {json.dumps(window_title_template())}", ""]
+    tmp_toml = TOML + ".tmp"
+    with open(tmp_toml, "w") as f:
+        f.write("\n".join(lines))
+    os.replace(tmp_toml, TOML)
+    print(f"{len(icons)} icons imported, {TOML} written")
+
+
+if __name__ == "__main__":
+    main()
