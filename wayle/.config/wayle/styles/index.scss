@@ -21,10 +21,15 @@ menubutton.bar-button > button.toggle .bar-button-label {
 }
 .bar.top .bar-section.bar-left {
   margin-left: 31px;
+  margin-right: 6px;
 }
 .bar.top .bar-section.bar-right {
   margin-right: 31px;
+  margin-left: 6px;
 }
+// (The 6 px towards the centre: when the sides get too wide, the centre
+// section is pushed aside by them, as in HyprPanel, keeping the usual gap
+// between buttons instead of touching.)
 .bar.top .bar-section .bar-item + .bar-item {
   margin-left: 6px;
 }
@@ -107,4 +112,10 @@ menubutton.bar-button.basic > button.toggle .bar-button-label {
 // title than Wayle's ~11 px.
 .dropdown-header .dropdown-title image {
   margin-right: 6px;
+}
+
+// Dropdowns a little further from the bar: 11 px below the buttons (Wayle's
+// 5 + 6). The VPN menu (vpn-proton-menu.py, TOP) matches.
+popover.dropdown > contents > .dropdown {
+  margin-top: 6px;
 }

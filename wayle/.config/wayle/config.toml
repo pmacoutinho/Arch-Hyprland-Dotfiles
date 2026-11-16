@@ -65,6 +65,9 @@ time-format = "24h"
 [modules.dashboard]
 border-show = true
 icon-override = "cm-nf-arch-symbolic"
+# The power row has four fixed buttons (lock, log out, reboot, power off) and
+# no sleep, so the padlock one sleeps, as HyprPanel's sleep button did.
+dropdown-lock-command = "systemctl suspend"
 
 [modules.media]
 border-show = true
