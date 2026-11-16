@@ -199,6 +199,10 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("hypridle")
     -- VPN dropdown (right click on the bar's VPN buttons), kept ready so it opens at once
     hl.exec_cmd("~/.scripts/vpn-proton-menu.py --daemon")
+    -- Calendar dropdown (left click on the clock), with Proton Calendar events
+    hl.exec_cmd("~/.scripts/calendar-menu.py --daemon")
+    -- Volume/brightness indicator, vertical like HyprPanel's (Wayle's is off).
+    hl.exec_cmd("~/.scripts/osd.py")
 end)
 
 

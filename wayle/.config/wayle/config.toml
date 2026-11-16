@@ -38,12 +38,15 @@ monitor = "*"
 left = ["dashboard", "media", "window-title"]
 center = ["notifications", "hyprland-workspaces"]
 right = ["systray", "volume", "custom-vpn-proton", "custom-vpn-it", "custom-vpn-off",
-         "network", "bluetooth", "battery", "clock"]
+         "custom-network", "bluetooth", "battery", "clock"]
 
 [styling]
 rounding = "md"
 
 [osd]
+# Off: ~/.scripts/osd.py shows HyprPanel's vertical one instead (Wayle's is
+# horizontal only).
+enabled = false
 position = "right"
 margin = 40.0
 
@@ -52,6 +55,10 @@ margin = 40.0
 engine-enabled = false
 
 [modules.clock]
+# Left click: our calendar dropdown with the Proton Calendar events
+# (~/.scripts/calendar-menu.py, kept running; this just signals it). Wayle's
+# own calendar dropdown can't show events.
+left-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/calendar-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/calendar-menu.py"
 icon-name = "cm-nf-calendar-symbolic"
 format = "%a %d %b  %H:%M:%S"
 border-show = true
@@ -107,6 +114,8 @@ border-show = true
 level-icons = ["cm-nf-volume-low-symbolic", "cm-nf-volume-medium-symbolic", "cm-nf-volume-high-symbolic"]
 icon-muted = "cm-nf-volume-off-symbolic"
 
+# (The built-in network button, not on the bar: with a VPN up it shows Wi-Fi
+# even when wired. custom-network below replaces it; its dropdown is kept.)
 [modules.network]
 border-show = true
 label-max-length = 0
@@ -180,3 +189,18 @@ label-color = "red"
 border-color = "red"
 left-click = "~/.scripts/vpn-notify.sh 'Proton VPN' 'Connecting to Portugal' ~/.scripts/vpn-proton-connect.sh"
 right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+
+[[modules.custom]]
+# The network button: the physical link actually carrying traffic (wired, or
+# the Wi-Fi network and signal), VPNs ignored (~/.scripts/network-status.sh,
+# as for HyprPanel). Left click: Wayle's network dropdown. Colours: the
+# theme's network ones, from styles/_theme.scss (theme-set).
+id = "network"
+command = "~/.scripts/network-status.sh"
+interval-ms = 2000
+format = "{{ text }}"
+tooltip-format = "{{ tooltip }}"
+border-show = true
+icon-map = { wired = "network-wired-symbolic", wifi-0 = "network-wireless-signal-none-symbolic", wifi-1 = "network-wireless-signal-weak-symbolic", wifi-2 = "network-wireless-signal-ok-symbolic", wifi-3 = "network-wireless-signal-good-symbolic", wifi-4 = "network-wireless-signal-excellent-symbolic", off = "network-wireless-disconnected-symbolic" }
+left-click = "dropdown:network"
+class-format = "network-button"

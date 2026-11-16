@@ -38,6 +38,7 @@ dotfiles/
 ├── rofi/              # Application launcher theme
 ├── scripts/           # Utility scripts (VPN, screen keyboard, etc.)
 ├── wayle/             # Bar: layout, modules, VPN buttons (colours: theme-set)
+├── wireplumber/       # Audio: shorter output names (the audio dropdown shows them)
 ├── starship/          # Shell prompt
 └── tmux/              # Terminal multiplexer
 ```
@@ -66,7 +67,7 @@ git clone --recurse-submodules https://github.com/pmacoutinho/Arch-Hyprland-Dotf
 cd Arch-Hyprland-Dotfiles
 
 # Stow everything
-stow -t ~ bash hypr hyprpanel wayle kitty nvim rofi cava starship scripts tmux
+stow -t ~ bash hypr hyprpanel wayle wireplumber kitty nvim rofi cava starship scripts tmux
 
 # Or stow individual packages
 stow -t ~ hypr
@@ -89,7 +90,7 @@ stow -D -t ~ hypr
 
 ## Post-install
 
-- **Wayle**: install `wayle-bin` (AUR), then run `~/.scripts/wayle-nerd-icons` once (needs `ttf-iosevka-nerd` and `python-fonttools`): it turns HyprPanel's Nerd Font icons into Wayle icons and writes `~/.config/wayle/nerd-icons.toml`, the app → icon table. Its colours (`~/.config/wayle/theme.toml`) are written by `theme-set`; its sizes (copied from HyprPanel) are in `styles/index.scss`. Edits to `config.toml` need `wayle panel restart` (it's a stow symlink, so Wayle doesn't see them); the stylesheet reloads by itself.
+- **Wayle**: install `wayle-bin` (AUR), then run `~/.scripts/wayle-nerd-icons` once (needs `ttf-iosevka-nerd` and `python-fonttools`): it turns HyprPanel's Nerd Font icons into Wayle icons and writes `~/.config/wayle/nerd-icons.toml`, the app → icon table. Its colours (`~/.config/wayle/theme.toml`) are written by `theme-set`; its sizes (copied from HyprPanel) are in `styles/index.scss`. Edits to `config.toml` need `wayle panel restart` (it's a stow symlink, so Wayle doesn't see them); the stylesheet reloads by itself. The volume/brightness indicator is `scripts/.scripts/osd.py` (Wayle's look, but upright like HyprPanel's; Wayle's own is horizontal only and turned off), started by `hyprland.lua`. The network button is a custom module (`network-status.sh`): the built-in one shows Wi-Fi whenever a VPN is up. Its colours come from `styles/_theme.scss`, written by `theme-set` (git keeps the defaults: `git config filter.wayle-theme.clean ~/.scripts/wayle-theme-clean` once per clone). Clicking the clock opens `scripts/.scripts/calendar-menu.py`, Wayle's calendar plus your Proton Calendar events: it reads a Proton share link (Settings → Calendars → Share via link, full details) from the local, untracked `~/.config/proton-calendar/feed-url` (keep it private: anyone with the link can read the calendar), and needs `python-icalendar` and `python-recurring-ical-events`.
 - **HyprPanel weather** (only if you switch back to HyprPanel): Replace `YOUR_API_KEY_HERE` in `hyprpanel/.config/hyprpanel/config.json` with your [OpenWeatherMap](https://openweathermap.org/api) API key.
 - **Wallpaper**: Place your wallpaper at `~/.config/wallpapers/sushi-dark.png` or update the path in `hypr/.config/hypr/hyprpaper.conf`.
 - **Tmux plugins**: Install [TPM](https://github.com/tmux-plugins/tpm), then press `prefix + I` to install plugins.

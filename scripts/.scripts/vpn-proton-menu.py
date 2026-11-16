@@ -468,6 +468,11 @@ class Menu(Gtk.Window):
                 if found is not None:
                     clicked, center = colour, found
                     break
+        # In the clicked button's colour, as the bar's other dropdowns take
+        # their button's (styles/index.scss).
+        accent = "#%02x%02x%02x" % clicked
+        colours["ACCENT"] = accent
+        colours["ACCENT_SUBTLE"] = alpha(accent, 0.15)
         css = CSS
         for name, value in colours.items():
             css = css.replace(f"@{name}@", value)
