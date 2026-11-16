@@ -73,8 +73,11 @@ time-format = "24h"
 border-show = true
 icon-override = "cm-nf-arch-symbolic"
 # The power row has four fixed buttons (lock, log out, reboot, power off) and
-# no sleep, so the padlock one sleeps, as HyprPanel's sleep button did.
-dropdown-lock-command = "systemctl suspend"
+# no sleep, so the padlock one sleeps, as HyprPanel's sleep button did: it
+# locks first (hyprlock), then suspends. A moon instead of its padlock:
+# styles/index.scss (its "Lock" hint is built into Wayle). Wayle reads this
+# when it starts: `wayle panel restart` after changing it.
+dropdown-lock-command = "~/.scripts/lock-suspend"
 
 [modules.media]
 border-show = true

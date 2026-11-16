@@ -332,6 +332,15 @@ hl.layer_rule({
     ignore_alpha = 0.01,
 })
 
+-- The on-screen keyboard (wvkbd) over the lock screen too, and usable there
+-- (above_lock = 2: shown and interactable), so the password can be typed with
+-- it: hyprlock.conf has a keyboard button that opens it, as does SUPER+O.
+hl.layer_rule({
+    name       = "keyboard",
+    match      = { namespace = "^(wvkbd)$" },
+    above_lock = 2,
+})
+
 -- See https://wiki.hypr.land/Configuring/Layouts/Dwindle-Layout/ for more
 hl.config({
     dwindle = {
@@ -427,7 +436,8 @@ hl.bind("PRINT",           hl.dsp.exec_cmd("sh ~/.scripts/screenshot.sh -m regio
 -- NOTE: the .conf had `bind = $shiftMod, PRINT, ...` but $shiftMod was never defined,
 -- so that bind never worked. Assuming SHIFT was intended.
 hl.bind("SHIFT + PRINT",   hl.dsp.exec_cmd("sh ~/.scripts/screenshot.sh -m region -o ~/Pictures/Screenshots/"))
-hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("sh ~/.scripts/onScreenKeyboard.sh"))
+-- locked: works on the lock screen too (see the "keyboard" layer rule)
+hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("sh ~/.scripts/onScreenKeyboard.sh"), { locked = true })
 hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("gromit-mpx"))
 
 -- Move focus with mainMod + arrow keys

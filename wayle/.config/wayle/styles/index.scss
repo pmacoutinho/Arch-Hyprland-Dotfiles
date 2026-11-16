@@ -164,3 +164,26 @@ $vpn-border: inset 0 0 0 var(--bar-btn-border-width) var(--bar-btn-border-color)
               0 0 12px 4px color-mix(in srgb, var(--bar-btn-border-color) 80%, transparent);
   transition: none;
 }
+
+// Dashboard dropdown: its first session button ("Lock") suspends
+// (config.toml: dropdown-lock-command), so a moon instead of the padlock.
+// Wayle has no icon option for it, so its image is hidden and the moon is
+// drawn as the button's background, in the image's colours (muted, brighter
+// on hover; the hover rule's `background` would drop it, so it's repeated).
+.dashboard-dropdown button.icon.session-btn:first-child {
+  background-image: -gtk-icontheme("ld-moon-symbolic");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--icon-md);
+  color: var(--fg-muted);
+
+  > image { opacity: 0; }
+
+  &:hover {
+    background-image: -gtk-icontheme("ld-moon-symbolic");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: var(--icon-md);
+    color: var(--fg-default);
+  }
+}

@@ -51,6 +51,10 @@ def hyprlock(p):
     }
     lines = [f"# {HEADER}"]
     lines += [f"${k:<14} = 0xff{p[v].lstrip('#').lower()}" for k, v in names.items()]
+    # Plain hex (no "#") for Pango markup, e.g. the input field's placeholder:
+    # foreground="##$accentHex" ("##" is hyprlang's escaped "#").
+    lines += [f"$textHex       = {p['foreground'].lstrip('#').lower()}",
+              f"$accentHex     = {p['accent'].lstrip('#').lower()}"]
     return "\n".join(lines) + "\n"
 
 

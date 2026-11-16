@@ -1,0 +1,34 @@
+#!/bin/sh
+# Lock the screen, then suspend: the dashboard's sleep button (Wayle's "Lock"
+# button, config.toml: dropdown-lock-command), so waking up shows hyprlock.
+# Only this button locks: hypridle.conf doesn't lock on every suspend (lid).
+#
+# Seamless: the screens go off first, so the lock screen is never seen before
+# sleeping, only on waking (hypridle's after_sleep_cmd turns them back on).
+# Then hypridle starts hyprlock on lock-session (lock_cmd). Hyprland confirms
+# the lock once hyprlock is in place, and hypridle then touches
+# $XDG_RUNTIME_DIR/session-locked (on_lock_cmd): suspend at that moment.
+# Fallbacks: hyprlock not running after 5 s, or running but no confirmation
+# after 1.5 s more: suspend anyway (while locking, Hyprland shows no desktop,
+# only black until hyprlock draws). If the suspend fails, the screens come
+# back on.
+stamp="${XDG_RUNTIME_DIR:-/tmp}/session-locked"
+start="${XDG_RUNTIME_DIR:-/tmp}/lock-suspend.start"
+dpms() { hyprctl eval "hl.dispatch(hl.dsp.dpms({ action = \"$1\" }))" >/dev/null 2>&1; }
+
+dpms off
+: > "$start"
+loginctl lock-session
+
+i=0
+while ! pidof hyprlock >/dev/null && [ $i -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+done
+i=0
+while ! [ "$stamp" -nt "$start" ] && [ $i -lt 30 ]; do
+    sleep 0.05
+    i=$((i + 1))
+done
+rm -f "$start"
+systemctl suspend || dpms on
