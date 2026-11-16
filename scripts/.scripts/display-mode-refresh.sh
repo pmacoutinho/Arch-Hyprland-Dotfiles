@@ -81,6 +81,15 @@ lasting() {
     echo "$p"
 }
 
+# Repaint every screen in full once. After a screen is added or mirrored, the
+# (software, NVIDIA) cursor could stay drawn where it was, a second "mouse"
+# that only went away once something repainted that spot.
+full_redraw() {
+    hyprctl eval 'hl.config({ debug = { damage_tracking = 0 } })' >/dev/null
+    sleep 0.1
+    hyprctl eval 'hl.config({ debug = { damage_tracking = 2 } })' >/dev/null
+}
+
 # HyprPanel rebuilds all its bars ~0.3s after Hyprland reports a screen
 # added/removed.
 rebuild_bars() {
@@ -113,9 +122,11 @@ fi
 
 settle
 sh ~/.scripts/toggleHyprsunset.sh --refresh
+full_redraw
 
 p=$(lasting)
 [ -z "$p" ] && exit 0
+trap full_redraw EXIT  # after the fixes below too
 if [ "$mode" = extend ]; then
     for mon in $(awk '$1 == "wallpaper" && $2 !~ /^eDP/ {print $2}' <<<"$p"); do
         superseded && exit 0
