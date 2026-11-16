@@ -1,0 +1,116 @@
+#!/bin/bash
+# The bar's VPN buttons (Wayle custom modules in config.toml, watch mode).
+#
+#   vpn-button watch  proton|it|off   the button: one JSON line per change,
+#                                     an empty line to hide it
+#   vpn-button click  proton|it|off   its left-click action
+#   vpn-button status proton|it|off   its current JSON (or nothing)
+#
+# Click feedback like HyprPanel's: shaded from the press until the mouse button
+# is released (the CSS class "pressed", styles/index.scss), at least a moment
+# for a quick click. Wayle runs a click's action at the press but never puts
+# its buttons in GTK's pressed state, so: the click action tells the watcher
+# (a FIFO), and hyprland.lua stamps every left-button release into
+# $XDG_RUNTIME_DIR/vpn-button/release, which the watcher looks at while
+# pressed. The status (NetworkManager, slow while connecting) is polled every
+# second on the side, so it never holds the feedback up.
+
+state="${XDG_RUNTIME_DIR:-/tmp}/vpn-button"
+which=$2
+MIN_PRESSED=60000  # µs: a quick click still shows
+
+proton_up() { nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q '^vpn$'; }
+
+status() {
+    case $which in
+        proton) proton_up && echo '{"alt": "connected"}' ;;
+        it) ~/.scripts/vpn-custom status ;;
+        off) proton_up || [ -n "$(~/.scripts/vpn-custom status)" ] || echo '{"alt": "disconnected"}' ;;
+    esac
+}
+
+# Time in µs, with no process started (it all has to be quick).
+now() { local t=$EPOCHREALTIME; NOW=$(( ${t%.*} * 1000000 + 10#${t#*.} )); }
+
+case $1 in
+status)
+    status
+    ;;
+watch)
+    mkdir -p "$state"
+    fifo="$state/$which.fifo"
+    cache="$state/$which.json"
+    [ -p "$fifo" ] || { rm -f "$fifo"; mkfifo "$fifo"; }
+    exec 3<>"$fifo"  # read-write: never blocks, never hits end-of-file
+    # One watcher per button: Wayle doesn't stop them when it restarts, so
+    # replace an older one, and stop when Wayle (the parent) is gone.
+    pidfile="$state/$which.pid"
+    old=$(cat "$pidfile" 2>/dev/null)
+    if [ -n "$old" ] && [ "$old" != $$ ] &&
+        tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q "vpn-button watch $which"; then
+        kill "$old" 2>/dev/null
+    fi
+    echo $$ > "$pidfile"
+    parent=$PPID me=$$
+    # Status poller, on the side (ends with the watcher).
+    (
+        while [ -e "/proc/$me" ]; do
+            json=$(status)
+            if [ "$json" != "$(cat "$cache" 2>/dev/null)" ]; then
+                printf '%s' "$json" > "$cache.tmp" && mv -f "$cache.tmp" "$cache"
+            fi
+            sleep 1
+        done
+    ) &
+    poller=$!
+    trap 'kill $poller 2>/dev/null' EXIT
+    trap 'exit 0' TERM PIPE
+    pressed=0 pressed_at=0 last="unset"
+    while [ -e "/proc/$parent" ]; do
+        if [ "$pressed" = 1 ]; then
+            # Released (a stamp newer than the press) and shown long enough?
+            if [ "$state/release" -nt "$state/$which.press" ]; then
+                now
+                (( NOW - pressed_at >= MIN_PRESSED )) && pressed=0
+            fi
+            timeout=0.015
+        else
+            timeout=0.25
+        fi
+        if read -r -t "$timeout" -u 3 msg && [ "$msg" = press ]; then
+            now
+            pressed=1 pressed_at=$NOW
+        fi
+        json=$(<"$cache") 2>/dev/null || json=""
+        if [ -z "$json" ]; then
+            out=""
+        elif [ "$pressed" = 1 ]; then
+            out="${json%\}}, \"class\": \"pressed\"}"
+        else
+            out=$json
+        fi
+        if [ "$out" != "$last" ]; then
+            printf '%s\n' "$out"
+            last=$out
+        fi
+    done
+    ;;
+click)
+    [ -d "$state" ] || mkdir -p "$state"
+    : > "$state/$which.press"
+    fifo="$state/$which.fifo"
+    # (Opened read-write: never blocks, even with no watcher.)
+    [ -p "$fifo" ] && echo press 1<>"$fifo"
+    case $which in
+        proton) set -- ~/.scripts/vpn-notify.sh 'Proton VPN' 'Disconnecting' ~/.scripts/vpn-proton-disconnect.sh ;;
+        it) set -- ~/.scripts/vpn-notify.sh "$(~/.scripts/vpn-custom label)" 'Disconnecting' ~/.scripts/vpn-custom disconnect ;;
+        off) set -- ~/.scripts/vpn-notify.sh 'Proton VPN' 'Connecting to Portugal' ~/.scripts/vpn-proton-connect.sh ;;
+        *) exit 2 ;;
+    esac
+    setsid -f "$@" </dev/null >/dev/null 2>&1
+    ;;
+*)
+    echo "usage: vpn-button watch|click|status proton|it|off" >&2
+    exit 2
+    ;;
+esac

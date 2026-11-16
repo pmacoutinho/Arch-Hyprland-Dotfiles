@@ -175,6 +175,22 @@ def contrast(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
+def readable(colour, background, toward, minimum=4.5):
+    """colour, mixed towards `toward` (the text colour) just enough for a
+    contrast of `minimum` on `background` (4.5: WCAG's for normal text)."""
+    def mix(a, b, t):
+        a, b = (tuple(int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) for c in (a, b))
+        return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+    try:
+        for step in range(11):
+            candidate = mix(colour, toward, step / 10)
+            if contrast(candidate, background) >= minimum:
+                return candidate
+    except ValueError:  # not #rrggbb
+        pass
+    return colour
+
+
 def hover_square(colours):
     """Hovering a workspace paints a square in the hover colour behind its icon
     and draws the icon in the highlighted-text colour (a dark one). Catppuccin's
@@ -287,6 +303,11 @@ def apply_wayle(theme, colours):
         "green": c("buttons.modules.netstat.text", palette.get("green")),
         "blue": c("buttons.modules.weather.text", palette.get("blue")),
     }
+    # Wayle draws secondary text (figures, labels, the calendar's days…) in
+    # fg-muted on the dropdowns' cards (elevated): some themes' muted colour is
+    # barely lighter than those. Make it readable.
+    if pal["fg-muted"] and pal["elevated"] and pal["fg"]:
+        pal["fg-muted"] = readable(pal["fg-muted"], pal["elevated"], pal["fg"])
     lines = ["# Written by ~/.scripts/theme-set for the current theme. Don't edit.", "",
              "[styling.palette]"]
     lines += [f'{k} = "{v}"' for k, v in pal.items() if v]

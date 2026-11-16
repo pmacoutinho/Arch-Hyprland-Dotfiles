@@ -140,13 +140,16 @@ level-icons = ["cm-nf-battery-0-symbolic", "cm-nf-battery-10-symbolic", "cm-nf-b
 charging-icon = "cm-nf-battery-charging-symbolic"
 alert-icon = "cm-nf-battery-alert-symbolic"
 
-# VPN buttons. Right click: the VPN menu (vpn-proton-menu.py, kept running in
-# the background; this just signals it). Colours: palette green/blue/red.
+# VPN buttons: status and left-click actions in ~/.scripts/vpn-button (which
+# also gives them HyprPanel's click effect). Right click: the VPN menu
+# (vpn-proton-menu.py, kept running in the background; this just signals it).
+# Colours: palette green/blue/red.
 
 [[modules.custom]]
 id = "vpn-proton"
-command = "nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q '^vpn$' && echo '{\"alt\": \"connected\"}'"
-interval-ms = 5000
+command = "~/.scripts/vpn-button watch proton"
+mode = "watch"
+restart-policy = "on-exit"
 format = "ProtonVPN"
 tooltip-format = "ProtonVPN: Connected"
 hide-if-empty = true
@@ -155,15 +158,17 @@ border-show = true
 icon-color = "green"
 label-color = "green"
 border-color = "green"
-left-click = "~/.scripts/vpn-notify.sh 'Proton VPN' 'Disconnecting' ~/.scripts/vpn-proton-disconnect.sh"
+left-click = "~/.scripts/vpn-button click proton"
 right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+class-format = "vpn-button"  # hover glow, click shading: styles/index.scss
 
 [[modules.custom]]
 # The extra OpenVPN 3 profile (label and profile in the local
 # ~/.config/vpn-proton-menu/custom-vpn.conf; see ~/.scripts/vpn-custom).
 id = "vpn-it"
-command = "~/.scripts/vpn-custom status"
-interval-ms = 5000
+command = "~/.scripts/vpn-button watch it"
+mode = "watch"
+restart-policy = "on-exit"
 format = "{{ text }}"
 tooltip-format = "{{ tooltip }}"
 hide-if-empty = true
@@ -172,13 +177,15 @@ border-show = true
 icon-color = "blue"
 label-color = "blue"
 border-color = "blue"
-left-click = "~/.scripts/vpn-notify.sh \"$(~/.scripts/vpn-custom label)\" 'Disconnecting' ~/.scripts/vpn-custom disconnect"
+left-click = "~/.scripts/vpn-button click it"
 right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+class-format = "vpn-button"  # hover glow, click shading: styles/index.scss
 
 [[modules.custom]]
 id = "vpn-off"
-command = "nmcli -t -f TYPE connection show --active 2>/dev/null | grep -q '^vpn$' || [ -n \"$(~/.scripts/vpn-custom status)\" ] || echo '{\"alt\": \"disconnected\"}'"
-interval-ms = 5000
+command = "~/.scripts/vpn-button watch off"
+mode = "watch"
+restart-policy = "on-exit"
 format = "VPN"
 tooltip-format = "VPN: Disconnected"
 hide-if-empty = true
@@ -187,8 +194,9 @@ border-show = true
 icon-color = "red"
 label-color = "red"
 border-color = "red"
-left-click = "~/.scripts/vpn-notify.sh 'Proton VPN' 'Connecting to Portugal' ~/.scripts/vpn-proton-connect.sh"
+left-click = "~/.scripts/vpn-button click off"
 right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
+class-format = "vpn-button"  # hover glow, click shading: styles/index.scss
 
 [[modules.custom]]
 # The network button: the physical link actually carrying traffic (wired, or

@@ -458,6 +458,15 @@ hl.bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }))
 hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
 hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 
+-- The bar's VPN buttons shade while pressed (~/.scripts/vpn-button): stamp every
+-- left-button release. Doesn't take the click (non_consuming); just a file
+-- touched inside Hyprland, no process started.
+local vpn_button_release = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/vpn-button/release"
+hl.bind("mouse:272", function()
+    local f = io.open(vpn_button_release, "w")
+    if f then f:close() end
+end, { release = true, non_consuming = true })
+
 -- Laptop multimedia keys for volume and LCD brightness
 hl.bind("XF86AudioRaiseVolume",  hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true })
 hl.bind("XF86AudioLowerVolume",  hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),      { locked = true, repeating = true })

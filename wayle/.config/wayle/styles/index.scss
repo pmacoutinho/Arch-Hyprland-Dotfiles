@@ -140,3 +140,27 @@ popover.dropdown {
   --bg-selected: color-mix(in srgb, var(--bar-btn-icon-color) 15%, transparent);
   --border-accent: var(--bar-btn-icon-color);
 }
+
+// VPN buttons (class-format "vpn-button"): HyprPanel's effect from its
+// modules.scss. A glow in the button's colour on hover; while the button is
+// pressed, a stronger glow and 70% opacity. Pressed is the class "pressed"
+// (~/.scripts/vpn-button and a release stamp in hyprland.lua): Wayle never
+// puts its buttons in GTK's pressed state. Wayle's own hover brightening is
+// off for them, as a CSS filter clips anything drawn outside the button, the
+// glow too. The border is Wayle's inset shadow, so it's kept in each box-shadow.
+$vpn-border: inset 0 0 0 var(--bar-btn-border-width) var(--bar-btn-border-color);
+.vpn-button menubutton.bar-button > button.toggle {
+  transition: opacity 60ms ease-out, box-shadow 60ms ease-out;
+}
+.vpn-button menubutton.bar-button:hover > button.toggle {
+  filter: none;
+  box-shadow: $vpn-border,
+              0 0 8px 2px color-mix(in srgb, var(--bar-btn-border-color) 50%, transparent);
+}
+.vpn-button.pressed menubutton.bar-button > button.toggle {
+  filter: none;
+  opacity: 0.7;
+  box-shadow: $vpn-border,
+              0 0 12px 4px color-mix(in srgb, var(--bar-btn-border-color) 80%, transparent);
+  transition: none;
+}
