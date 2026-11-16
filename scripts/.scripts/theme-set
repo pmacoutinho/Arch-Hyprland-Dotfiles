@@ -251,6 +251,7 @@ def network_icons(colours):
 
 
 WAYLE_THEME = os.path.join(HOME, ".config/wayle/theme.toml")
+WAYLE_SCSS = os.path.join(HOME, ".config/wayle/styles/_theme.scss")
 # HyprPanel button -> Wayle module, so the bar looks the same in Wayle.
 WAYLE_MODULES = {
     "dashboard": "dashboard", "media": "media", "windowtitle": "window-title",
@@ -306,17 +307,32 @@ def apply_wayle(theme, colours):
                  ("border-color", ws("border"))):
         if v:
             lines.append(f'{k} = "{v}"')
-    text = "\n".join(lines) + "\n"
+    write_if_changed(WAYLE_THEME, "\n".join(lines) + "\n")
+
+    # Colours theme.toml can't give (custom modules' can't be set from an
+    # imported file): styles/_theme.scss, imported by styles/index.scss. In the
+    # repo with Catppuccin's values (a git clean filter keeps them there).
+    net = lambda key: c(f"buttons.network.{key}")  # noqa: E731
+    scss = {"network": net("icon") or net("text"), "network-bg": net("background")}
+    write_if_changed(WAYLE_SCSS, "".join(
+        ["// Written by ~/.scripts/theme-set for the current theme (the repo keeps these\n",
+         "// defaults: a git clean filter, see .gitattributes). Colours Wayle's own\n",
+         "// theme.toml can't give: the custom network button's.\n"]
+        + [f"${k}: {v};\n" for k, v in scss.items() if v]))
+
+
+def write_if_changed(path, text):
+    """Whole file at once (Wayle reloads as soon as the directory changes), and
+    only if it changed."""
     try:
-        with open(WAYLE_THEME) as f:
+        with open(path) as f:
             if f.read() == text:
                 return
     except OSError:
         pass
-    # Whole file at once (Wayle reloads as soon as the directory changes).
-    with open(WAYLE_THEME + ".tmp", "w") as f:
+    with open(path + ".tmp", "w") as f:
         f.write(text)
-    os.replace(WAYLE_THEME + ".tmp", WAYLE_THEME)
+    os.replace(path + ".tmp", path)
 
 
 def apply_gtk4(theme, meta):

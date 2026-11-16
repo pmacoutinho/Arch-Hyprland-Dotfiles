@@ -1,0 +1,17 @@
+#!/bin/sh
+# git clean filter for wayle/.config/wayle/styles/_theme.scss.
+#
+# theme-set writes the current theme's colours into that file, which lives in
+# the dotfiles repo. Git always reads the defaults (Catppuccin's) instead, so
+# switching themes doesn't show up as a change.
+#
+# Set up once per clone (the .gitattributes line is in the repo):
+#     git config filter.wayle-theme.clean ~/.scripts/wayle-theme-clean
+cat >/dev/null
+cat <<'SCSS'
+// Written by ~/.scripts/theme-set for the current theme (the repo keeps these
+// defaults: a git clean filter, see .gitattributes). Colours Wayle's own
+// theme.toml can't give: the custom network button's.
+$network: #cba6f7;
+$network-bg: #242438;
+SCSS

@@ -1,1 +1,2 @@
 hyprpanel/.config/hyprpanel/config.json filter=hyprpanel-theme
+wayle/.config/wayle/styles/_theme.scss filter=wayle-theme

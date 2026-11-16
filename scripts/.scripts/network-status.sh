@@ -1,7 +1,8 @@
 #!/bin/bash
-# Status for the HyprPanel network modules (JSON: alt, text, tooltip).
+# Status for the bar's network button (JSON: alt, text, tooltip): Wayle's
+# custom-network module, or HyprPanel's network modules.
 #
-# HyprPanel's built-in network module shows Wi-Fi whenever the primary
+# Both bars' built-in network modules show Wi-Fi whenever the primary
 # connection isn't wired, which includes whenever a VPN is up. This reports the
 # physical link actually carrying traffic instead, ignoring VPN/tun/bridges.
 #

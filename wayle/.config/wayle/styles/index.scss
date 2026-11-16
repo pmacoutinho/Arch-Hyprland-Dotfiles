@@ -6,6 +6,8 @@
 // 13.5 px; icons: HyprPanel's Nerd Font glyphs (~/.scripts/wayle-nerd-icons)
 // at its 16 px.
 
+@import "theme";  // _theme.scss: colours from theme-set
+
 // Room above/below the bar labels: Noto Sans' tops reach above the label's
 // box, and Wayle only repaints the box, so a changing label (the clock's
 // seconds) left bits of the old digits on top of the new ones.
@@ -118,4 +120,23 @@ menubutton.bar-button.basic > button.toggle .bar-button-label {
 // 5 + 6). The VPN menu (vpn-proton-menu.py, TOP) matches.
 popover.dropdown > contents > .dropdown {
   margin-top: 6px;
+}
+
+// The network button (a custom module, class-format "network-button", see
+// config.toml): the theme's network colours, like the built-in one had.
+.network-button menubutton.bar-button {
+  --bar-btn-label-color: #{$network};
+  --bar-btn-icon-color: #{$network};
+  --bar-btn-border-color: #{$network};
+  --bar-btn-bg: #{$network-bg};
+}
+
+// Each dropdown in its button's colour (instead of the theme's accent): a
+// dropdown is inside its bar button, which carries its colours as variables.
+popover.dropdown {
+  --accent: var(--bar-btn-icon-color);
+  --accent-subtle: color-mix(in srgb, var(--bar-btn-icon-color) 15%, transparent);
+  --accent-hover: color-mix(in srgb, var(--bar-btn-icon-color) 80%, white);
+  --bg-selected: color-mix(in srgb, var(--bar-btn-icon-color) 15%, transparent);
+  --border-accent: var(--bar-btn-icon-color);
 }
