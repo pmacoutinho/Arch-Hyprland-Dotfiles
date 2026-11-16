@@ -334,11 +334,14 @@ def apply_wayle(theme, colours):
     # imported file): styles/_theme.scss, imported by styles/index.scss. In the
     # repo with Catppuccin's values (a git clean filter keeps them there).
     net = lambda key: c(f"buttons.network.{key}")  # noqa: E731
-    scss = {"network": net("icon") or net("text"), "network-bg": net("background")}
+    med = lambda key: c(f"buttons.media.{key}")  # noqa: E731
+    scss = {"network": net("icon") or net("text"), "network-bg": net("background"),
+            "media-icon": med("icon") or med("text"), "media-text": med("text") or med("icon"),
+            "media-border": med("border") or med("text"), "media-bg": med("background")}
     write_if_changed(WAYLE_SCSS, "".join(
         ["// Written by ~/.scripts/theme-set for the current theme (the repo keeps these\n",
          "// defaults: a git clean filter, see .gitattributes). Colours Wayle's own\n",
-         "// theme.toml can't give: the custom network button's.\n"]
+         "// theme.toml can't give: the custom network and media buttons'.\n"]
         + [f"${k}: {v};\n" for k, v in scss.items() if v]))
 
 

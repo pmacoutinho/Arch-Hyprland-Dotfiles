@@ -35,7 +35,10 @@ dropdown-autohide = true
 
 [[bar.layout]]
 monitor = "*"
-left = ["dashboard", "media", "window-title"]
+# Resources: CPU, GPU and RAM usage in one frame (styles/index.scss, #resources),
+# each opening the resources dropdown.
+left = ["dashboard", { name = "resources", modules = ["cpu", "custom-gpu", "ram"] },
+        "custom-media", "window-title"]
 center = ["notifications", "hyprland-workspaces"]
 right = ["systray", "volume", "custom-vpn-proton", "custom-vpn-it", "custom-vpn-off",
          "custom-network", "bluetooth", "battery", "clock"]
@@ -79,7 +82,28 @@ icon-override = "cm-nf-arch-symbolic"
 # when it starts: `wayle panel restart` after changing it.
 dropdown-lock-command = "~/.scripts/lock-suspend"
 
+# The resources group (bar layout): Wayle's CPU and RAM modules, the custom GPU
+# one between them; in the palette's green (HyprPanel's netstat colour), the
+# frame around the three in styles/index.scss. Left click: the resources
+# dropdown (~/.scripts/resources-menu.py: values, swap, disk, network speed).
+[modules.cpu]
+# Two digits (09%, 00%): a steady width.
+format = "{%- set p = percent | int -%}{{ '0' if p < 10 }}{{ p }}%"
+icon-color = "green"
+label-color = "green"
+left-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/resources-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/resources-menu.py"
+
+[modules.ram]
+# Two digits (09%, 00%): a steady width.
+format = "{%- set p = percent | int -%}{{ '0' if p < 10 }}{{ p }}%"
+poll-interval-ms = 2000
+icon-color = "green"
+label-color = "green"
+left-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/resources-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/resources-menu.py"
+
 [modules.media]
+# (Not on the bar: the custom "media" module below replaces it, as this one
+# can only cut a long title. Kept to switch back.)
 border-show = true
 # As HyprPanel: "artist - title", cut at 30 characters + "..." (Wayle's own
 # limit is a width, so it's off and the template cuts).
@@ -149,6 +173,20 @@ alert-icon = "cm-nf-battery-alert-symbolic"
 # Colours: palette green/blue/red.
 
 [[modules.custom]]
+# GPU usage (~/.scripts/gpu-status.py: nvidia-smi or AMD's sysfs; hidden
+# without either), in the resources group with Wayle's CPU and RAM modules.
+id = "gpu"
+command = "~/.scripts/gpu-status.py"
+mode = "watch"
+restart-policy = "on-exit"
+format = "{{ text }}"
+hide-if-empty = true
+icon-name = "ld-monitor-symbolic"
+icon-color = "green"
+label-color = "green"
+left-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/resources-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/resources-menu.py"
+
+[[modules.custom]]
 id = "vpn-proton"
 command = "~/.scripts/vpn-button watch proton"
 mode = "watch"
@@ -200,6 +238,48 @@ border-color = "red"
 left-click = "~/.scripts/vpn-button click off"
 right-click = "kill -USR1 \"$(cat \"$XDG_RUNTIME_DIR/vpn-proton-menu-daemon.pid\" 2>/dev/null)\" 2>/dev/null || ~/.scripts/vpn-proton-menu.py"
 class-format = "vpn-button"  # hover glow, click shading: styles/index.scss
+
+[[modules.custom]]
+# The media button, in place of Wayle's media module: "artist - title" at most
+# 160 px wide, a longer one cut with "..." and scrolling through it smoothly
+# while it plays or the pointer is over it; the player's icon (nerd-icons.toml's
+# media player-icons). All by ~/.scripts/media-status.py (MPRIS; the scrolling
+# text is its own layer over the label); hidden without a player. Left click:
+# Wayle's media dropdown. Colours: the theme's media ones, from
+# styles/_theme.scss (theme-set).
+id = "media"
+command = "~/.scripts/media-status.py"
+mode = "watch"
+restart-policy = "on-exit"
+format = "{{ text }}"
+hide-if-empty = true
+icon-name = "ld-music-symbolic"
+border-show = true
+left-click = "dropdown:media"
+class-format = "media-button"
+
+# Its icon: media-status.py sends the player's icon name (nerd-icons.toml's
+# media player-icons) as "alt"; Wayle only shows icons listed here (browsers
+# and players), else the default.
+[modules.custom.icon-map]
+default = "ld-music-symbolic"
+"cm-nf-app-f0239-symbolic" = "cm-nf-app-f0239-symbolic"  # firefox, floorp
+"cm-nf-app-ebf8-symbolic" = "cm-nf-app-ebf8-symbolic"  # zen
+"cm-nf-app-f268-symbolic" = "cm-nf-app-f268-symbolic"  # chromium, google-chrome
+"si-brave-symbolic" = "si-brave-symbolic"  # brave-browser
+"cm-nf-app-f01e9-symbolic" = "cm-nf-app-f01e9-symbolic"  # microsoft-edge
+"cm-nf-app-f26a-symbolic" = "cm-nf-app-f26a-symbolic"  # opera
+"cm-nf-app-f059f-symbolic" = "cm-nf-app-f059f-symbolic"  # thorium, vivaldi, waterfox
+"cm-nf-app-f371-symbolic" = "cm-nf-app-f371-symbolic"  # tor-browser
+"cm-nf-app-f04c7-symbolic" = "cm-nf-app-f04c7-symbolic"  # spotify
+"cm-nf-app-f057c-symbolic" = "cm-nf-app-f057c-symbolic"  # vlc
+"cm-nf-app-f36e-symbolic" = "cm-nf-app-f36e-symbolic"  # mpv
+"cm-nf-app-f04c3-symbolic" = "cm-nf-app-f04c3-symbolic"  # rhythmbox
+"cm-nf-app-f06ba-symbolic" = "cm-nf-app-f06ba-symbolic"  # plex
+"si-tidal-symbolic" = "si-tidal-symbolic"  # tidal-hifi
+"ld-film-symbolic" = "ld-film-symbolic"  # stremio
+"cm-nf-app-f1ff-symbolic" = "cm-nf-app-f1ff-symbolic"  # discord, legcord, webcord, vesktop
+"cm-nf-app-f2c6-symbolic" = "cm-nf-app-f2c6-symbolic"  # telegram-desktop
 
 [[modules.custom]]
 # The network button: the physical link actually carrying traffic (wired, or

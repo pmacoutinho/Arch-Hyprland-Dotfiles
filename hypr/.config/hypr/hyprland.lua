@@ -201,6 +201,8 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("~/.scripts/vpn-proton-menu.py --daemon")
     -- Calendar dropdown (left click on the clock), with Proton Calendar events
     hl.exec_cmd("~/.scripts/calendar-menu.py --daemon")
+    -- Resources dropdown (the bar's resources button): values and network speed
+    hl.exec_cmd("~/.scripts/resources-menu.py --daemon")
     -- Volume/brightness indicator, vertical like HyprPanel's (Wayle's is off).
     hl.exec_cmd("~/.scripts/osd.py")
 end)
@@ -330,6 +332,14 @@ hl.layer_rule({
     blur         = true,
     xray         = true,
     ignore_alpha = 0.01,
+})
+
+-- The media button's scrolling title (media-status.py's ticker, a layer over
+-- the bar's label): no fade in/out, which would flash over the label.
+hl.layer_rule({
+    name    = "media-ticker",
+    match   = { namespace = "^(media-ticker)$" },
+    no_anim = true,
 })
 
 -- The on-screen keyboard (wvkbd) over the lock screen too, and usable there

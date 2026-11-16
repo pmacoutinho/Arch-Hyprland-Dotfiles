@@ -131,6 +131,24 @@ popover.dropdown > contents > .dropdown {
   --bar-btn-bg: #{$network-bg};
 }
 
+// The media button (a custom module, class-format "media-button": Wayle's own
+// can't scroll a long title, see config.toml): the theme's media colours, and
+// the 16 px icon of the built-in one (custom modules' are 14 px, above).
+.media-button menubutton.bar-button {
+  --bar-btn-label-color: #{$media-text};
+  --bar-btn-icon-color: #{$media-icon};
+  --bar-btn-border-color: #{$media-border};
+  --bar-btn-bg: #{$media-bg};
+}
+.media-button menubutton.bar-button.basic > button.toggle image {
+  -gtk-icon-size: 16px;
+}
+// While a long title scrolls, media-status.py draws it on its own layer right
+// over the label: the label (the same text, cut) is hidden meanwhile.
+.media-button.ticking menubutton.bar-button > button.toggle .bar-button-label {
+  opacity: 0;
+}
+
 // Each dropdown in its button's colour (instead of the theme's accent): a
 // dropdown is inside its bar button, which carries its colours as variables.
 popover.dropdown {
@@ -186,4 +204,61 @@ $vpn-border: inset 0 0 0 var(--bar-btn-border-width) var(--bar-btn-border-color)
     background-size: var(--icon-md);
     color: var(--fg-default);
   }
+}
+
+// The resources group (config.toml: CPU, GPU and RAM in one bar item): one
+// button's frame around the three, like the other buttons (2 px border in
+// the palette's green, 4 px corners, the buttons' background), the modules
+// inside without their own boxes.
+.bar-group#resources {
+  border: 2px solid var(--palette-green);
+  border-radius: 4px;
+  padding: 0;
+  background-color: #{$network-bg};
+}
+#resources .module + .module {
+  margin-left: 0;
+}
+#resources menubutton.bar-button > button.toggle {
+  min-height: 26px;  // + the frame's 2 px each side = 30 px
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+// 9 px inside the frame at its ends, as other buttons; 5 + 5 px between the
+// modules (number to next icon ≈ the icon-to-number gap, doubled).
+#resources menubutton.bar-button.basic > button.toggle .bar-button-content {
+  margin: 0 5px;
+}
+#resources .module:first-child menubutton.bar-button.basic > button.toggle .bar-button-content {
+  margin-left: 9px;
+}
+#resources .module:last-child menubutton.bar-button.basic > button.toggle .bar-button-content {
+  margin-right: 9px;
+}
+// Hover: the whole group lights up, as one button (Wayle brightens each
+// module's own button instead).
+#resources menubutton.bar-button:hover > button.toggle,
+#resources menubutton.bar-button:checked > button.toggle {
+  filter: none;
+}
+.bar-group#resources:hover {
+  filter: brightness(1.15);
+}
+#resources menubutton.bar-button > button.toggle image {
+  -gtk-icon-size: 15px;
+}
+
+// Battery dropdown, power profiles: three equal slots with the label centred,
+// but invisible unless chosen, so the gaps between "Saver", "Balanced" and
+// "Performance" looked uneven. A faint background on each shows the slots.
+// A little smaller text and icon than Wayle's: "Performance" nearly filled
+// its slot.
+button.profile-seg-btn {
+  background: color-mix(in srgb, var(--fg-default) 5%, transparent);
+  font-size: 12px;
+}
+button.profile-seg-btn image.profile-seg-icon {
+  -gtk-icon-size: 12px;
+  margin-right: 4px;
 }
