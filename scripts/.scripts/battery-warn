@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Low battery warnings at 20, 15, 10 and 5 % (Wayle has none; HyprPanel had).
+
+Watches UPower's combined battery (its D-Bus signals, no polling). While
+discharging, each step it falls to brings one notification, the same one
+replaced, with the time left: a normal one at 20 and 15 %, an urgent one
+(stays until closed) at 10 and 5 %. Plugging in takes it away and starts
+over. Started below a step (at login), it warns for the step it's under.
+Autostarted by hyprland.lua; one at a time.
+"""
+import os
+import signal
+import subprocess
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+STEPS = (20, 15, 10, 5)
+URGENT = 10  # and below
+UPOWER = "org.freedesktop.UPower"
+DEVICE = "/org/freedesktop/UPower/devices/DisplayDevice"
+IFACE = "org.freedesktop.UPower.Device"
+DISCHARGING = (2, 6)  # discharging, pending discharge
+PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "battery-warn.pid")
+
+
+def time_left(seconds):
+    if seconds <= 0:
+        return ""
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"About {minutes} min left."
+    return f"About {minutes // 60} h {minutes % 60:02d} min left."
+
+
+class Warner:
+    def __init__(self):
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        self.warned = None  # lowest step warned for, this discharge
+        self.notification = 0  # its id, to replace or close it
+        self.bus.signal_subscribe(UPOWER, "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                                  DEVICE, IFACE, Gio.DBusSignalFlags.NONE,
+                                  lambda *_: self.check())
+        self.check()
+
+    def prop(self, name):
+        reply = self.bus.call_sync(UPOWER, DEVICE, "org.freedesktop.DBus.Properties", "Get",
+                                   GLib.Variant("(ss)", (IFACE, name)), None,
+                                   Gio.DBusCallFlags.NONE, 2000, None)
+        return reply.unpack()[0]
+
+    def check(self):
+        try:
+            if not self.prop("IsPresent"):
+                return
+            state, percent = self.prop("State"), self.prop("Percentage")
+            seconds = self.prop("TimeToEmpty")
+        except GLib.Error:
+            return
+        if state not in DISCHARGING:
+            if self.warned is not None:
+                self.warned = None
+                self.close()
+            return
+        step = min((s for s in STEPS if percent <= s), default=None)
+        if step is not None and (self.warned is None or step < self.warned):
+            self.warned = step
+            self.notify(round(percent), step <= URGENT, time_left(seconds))
+
+    def notify(self, percent, urgent, left):
+        icon = "battery-caution-symbolic" if urgent else "battery-low-symbolic"
+        body = " ".join(filter(None, [left, "Plug in the charger." if urgent else ""]))
+        cmd = ["notify-send", "--app-name=Battery", f"--icon={icon}", "--print-id",
+               f"--urgency={'critical' if urgent else 'normal'}",
+               f"Battery low: {percent}%", body]
+        if self.notification:
+            cmd.insert(1, f"--replace-id={self.notification}")
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+            self.notification = int(out.strip() or 0)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+
+    def close(self):
+        if self.notification:
+            try:
+                Gio.bus_get_sync(Gio.BusType.SESSION).call_sync(
+                    "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                    "org.freedesktop.Notifications", "CloseNotification",
+                    GLib.Variant("(u)", (self.notification,)), None,
+                    Gio.DBusCallFlags.NONE, 2000, None)
+            except GLib.Error:
+                pass
+            self.notification = 0
+
+
+def main():
+    try:  # replace an older one
+        with open(PIDFILE) as f:
+            old = int(f.read())
+        with open(f"/proc/{old}/cmdline", "rb") as f:
+            if b"battery-warn" in f.read():
+                os.kill(old, signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+    loop = GLib.MainLoop()
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, loop.quit)
+    except (ImportError, ValueError):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, loop.quit)
+    Warner()
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

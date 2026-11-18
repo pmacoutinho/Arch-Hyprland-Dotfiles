@@ -203,6 +203,10 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("~/.scripts/calendar-menu.py --daemon")
     -- Resources dropdown (the bar's resources button): values and network speed
     hl.exec_cmd("~/.scripts/resources-menu.py --daemon")
+    -- The dashboard's Night Mode tile (Wayle's Idle Inhibit one, restyled)
+    hl.exec_cmd("~/.scripts/night-mode-tile")
+    -- Low battery warnings at 20, 15, 10 and 5 % (Wayle has none)
+    hl.exec_cmd("~/.scripts/battery-warn")
     -- Volume/brightness indicator, vertical like HyprPanel's (Wayle's is off).
     hl.exec_cmd("~/.scripts/osd.py")
 end)
@@ -218,6 +222,11 @@ hl.env("HYPRCURSOR_SIZE", "24")
 hl.env("LIBVA_DRIVER_NAME", "nvidia")
 hl.env("MOZ_DISABLE_RDD_SANDBOX", "1")
 hl.env("MOZ_ENABLE_WAYLAND", "1")
+
+-- GTK 4 apps (the Wayle bar, Nautilus…) draw with OpenGL, not GTK's default
+-- Vulkan: on this NVIDIA card, Vulkan apps lost their cached letters and icons
+-- after a suspend (blanks in the bar until it was restarted).
+hl.env("GSK_RENDERER", "ngl")
 
 
 -----------------------
@@ -335,11 +344,15 @@ hl.layer_rule({
 })
 
 -- The media button's scrolling title (media-status.py's ticker, a layer over
--- the bar's label): no fade in/out, which would flash over the label.
+-- the bar's label): no fade in/out, which would flash over the label; and
+-- always above the bar: a layer is drawn over the ones made before it, so a
+-- bar re-made after SUPER+P (mirror <-> extend) covered it. A lower order is
+-- drawn later, on top (no other effect: it reserves no space).
 hl.layer_rule({
     name    = "media-ticker",
     match   = { namespace = "^(media-ticker)$" },
     no_anim = true,
+    order   = -1,
 })
 
 -- The on-screen keyboard (wvkbd) over the lock screen too, and usable there
