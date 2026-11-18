@@ -1,2 +1,3 @@
 hyprpanel/.config/hyprpanel/config.json filter=hyprpanel-theme
 wayle/.config/wayle/styles/_theme.scss filter=wayle-theme
+wayle/.config/wayle/styles/_night-mode.scss filter=wayle-night

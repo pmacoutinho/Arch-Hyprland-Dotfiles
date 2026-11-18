@@ -7,6 +7,7 @@
 // at its 16 px.
 
 @import "theme";  // _theme.scss: colours from theme-set
+@import "night-mode";  // _night-mode.scss: $night-mode, from toggleHyprsunset.sh
 
 // Room above/below the bar labels: Noto Sans' tops reach above the label's
 // box, and Wayle only repaints the box, so a changing label (the clock's
@@ -261,4 +262,73 @@ button.profile-seg-btn {
 button.profile-seg-btn image.profile-seg-icon {
   -gtk-icon-size: 12px;
   margin-right: 4px;
+}
+
+// Dashboard dropdown: the user card (name and session buttons) on top instead
+// of at the bottom. Wayle has no option for the order, and GTK's CSS can't
+// reorder widgets, so the cards are moved with transforms (clicks follow): the
+// others down by the user card's height and the gap (52 + 7 px), the user card
+// up by the height of the others and their gaps (168 + 87 + 142 + 117 + 122 +
+// 5 × 7 px; measured on screen, 1x). That needs those heights fixed: the
+// now-playing card is held at its height with a song on (128 px + its 14 px of
+// padding and border; empty, it's no taller), and the battery/network row at
+// its height with the battery's time estimate ("~2m", shown only at times),
+// 117 px, else 105.
+$dash-cards: ".dashboard-dropdown > * > * > *:nth-child(2)";
+#{$dash-cards} > * {
+  transform: translateY(59px);
+}
+#{$dash-cards} > *:last-child {
+  transform: translateY(-671px);
+}
+#{$dash-cards} > *:nth-child(3) {
+  min-height: 128px;
+}
+#{$dash-cards} > *:nth-child(4) {
+  min-height: 117px;
+}
+
+// The user card's name: Wayle's 13 px looked small next to its 40 px avatar
+// and the cards' titles; as big as the dropdown's "Dashboard" title.
+.dashboard-dropdown .user-name {
+  font-size: var(--text-lg);
+}
+
+// Dashboard dropdown: a Night Mode tile where Wayle has Idle Inhibit (the
+// fifth; its tiles are fixed). ~/.scripts/night-mode-tile turns Wayle's idle
+// inhibition straight back off when it's clicked and toggles night mode; the
+// tile shows night mode's state ($night-mode), not Wayle's.
+// The label is built in, so it's hidden and "Night Mode" is drawn by the tile
+// in its place, as an icon (~/.scripts/wayle-nerd-icons: the labels' font and
+// rendering; 74.9189 px wide, drawn 1:1). Where GTK would put that label:
+// 15.5 px in (centred), 47.5 px down (measured: the label's own text, drawn
+// this way, matched it to the pixel). The `background` of Wayle's states
+// would drop it, so it's on each.
+$night-tile: ".dashboard-dropdown button.quick-action:nth-child(5)";
+#{$night-tile},
+#{$night-tile}:hover,
+#{$night-tile}:active,
+#{$night-tile}.active {
+  background-image: -gtk-icontheme("cm-text-night-mode-symbolic");
+  background-repeat: no-repeat;
+  background-size: 74.9189px 74.9189px;
+  background-position: 15.5px 47.5px;
+  color: if($night-mode, var(--fg-default), var(--fg-subtle));
+}
+#{$night-tile} .quick-action-label {
+  color: transparent;
+}
+// The icon: a sunset (HyprPanel's night mode shortcut had one) instead of the
+// eye, drawn by its box as the moon above is; on, in the accent as active
+// tiles are.
+#{$night-tile} .quick-action-icon,
+#{$night-tile}.active .quick-action-icon {
+  background-color: if($night-mode, var(--accent), var(--bg-overlay));
+  background-image: -gtk-icontheme("ld-sunset-symbolic");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--icon-lg);
+  color: if($night-mode, var(--fg-on-accent), var(--fg-muted));
+
+  > image { opacity: 0; }
 }

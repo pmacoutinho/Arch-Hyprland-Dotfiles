@@ -12,6 +12,11 @@ tables below. Needs a Nerd Font (Iosevka Nerd Font) and python-fonttools.
 
 Each icon is a 1 em square centred on its glyph, so at an icon size of N px
 it is as big as the glyph in N px text (HyprPanel: mostly 16 px).
+
+Also text drawn as icons (TEXT_ICONS), for labels Wayle has built in: the
+dashboard's "Night Mode" tile (styles/index.scss, ~/.scripts/night-mode-tile).
+Written as Wayle's tile labels render (Noto Sans SemiBold 13 px, slight
+hinting, the baseline on a pixel), so drawn at 1:1 they look the same.
 """
 import json
 import os
@@ -24,8 +29,22 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 
+import cairo
+import gi
+
+gi.require_version("Pango", "1.0")
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Pango, PangoCairo
+
 FONT = "Iosevka Nerd Font"
 TOML = os.path.expanduser("~/.config/wayle/nerd-icons.toml")
+ICON_DIR = os.path.expanduser("~/.local/share/wayle/icons/hicolor/scalable/actions")
+
+# Text as icons: name (cm-<name>-symbolic) -> (text, font). Their widths go in
+# index.scss (printed when written).
+TEXT_ICONS = {
+    "text-night-mode": ("Night Mode", "Noto Sans SemiBold 13px"),
+}
 
 # Bar buttons (names used in config.toml).
 MODULE_ICONS = {
@@ -156,6 +175,33 @@ def glyph_svg(cp):
             f'<path fill="#000" transform="scale(1,-1)" d="{pen.getCommands()}"/></svg>\n')
 
 
+def text_svg(text, font):
+    """A square SVG (GTK draws icons square) as wide as the text's layout, the
+    text along its top, and that width."""
+    cr = cairo.Context(cairo.RecordingSurface(cairo.CONTENT_ALPHA, None))
+    options = cairo.FontOptions()
+    options.set_hint_style(cairo.HINT_STYLE_SLIGHT)
+    options.set_hint_metrics(cairo.HINT_METRICS_OFF)
+    context = PangoCairo.create_context(cr)
+    PangoCairo.context_set_font_options(context, options)
+    context.set_round_glyph_positions(False)
+    layout = Pango.Layout.new(context)
+    layout.set_font_description(Pango.FontDescription.from_string(font))
+    layout.set_text(text, -1)
+    width = layout.get_extents()[1].width / Pango.SCALE
+    baseline = layout.get_baseline() / Pango.SCALE
+    cr.translate(0, round(baseline) - baseline)
+    PangoCairo.layout_path(cr, layout)
+    cr.identity_matrix()
+    d = ""
+    for op, pts in cr.copy_path():
+        d += {cairo.PATH_MOVE_TO: "M", cairo.PATH_LINE_TO: "L",
+              cairo.PATH_CURVE_TO: "C"}.get(op, "Z") + " ".join(f"{v:.3f}" for v in pts)
+    return width, (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:g}" '
+                   f'height="{width:g}" viewBox="0 0 {width:g} {width:g}">'
+                   f'<path fill="#000" d="{d}"/></svg>\n')
+
+
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
@@ -224,6 +270,14 @@ def main():
         f.write("\n".join(lines))
     os.replace(tmp_toml, TOML)
     print(f"{len(icons)} icons imported, {TOML} written")
+
+    # Straight into Wayle's icons: its import would scale them to 16 px.
+    os.makedirs(ICON_DIR, exist_ok=True)
+    for name, (text, font) in TEXT_ICONS.items():
+        width, svg = text_svg(text, font)
+        with open(os.path.join(ICON_DIR, f"cm-{name}-symbolic.svg"), "w") as f:
+            f.write(svg)
+        print(f"cm-{name}-symbolic: {text!r}, {width:g} px wide")
 
 
 if __name__ == "__main__":

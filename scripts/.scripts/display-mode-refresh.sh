@@ -9,11 +9,10 @@
 #  - Extended: if the screen's bar isn't there right away, make HyprPanel
 #    rebuild its bars at once (it isn't told about mirror <-> extend): add a
 #    headless output for a moment (invisible; the panel's bar blinks).
-#  - Once the monitors have settled: rebuild night mode's shader (built per
-#    layout, skipping mirrors), and check every screen has a wallpaper and one
-#    bar. No wallpaper means the screen was never announced to apps: switch it
-#    off and on (reconnect_output in hyprland.lua; black for ~2s, so only
-#    then). Bars wrong: rebuild them as above, else restart the bar.
+#  - Once the monitors have settled: check every screen has a wallpaper and
+#    one bar. No wallpaper means the screen was never announced to apps:
+#    switch it off and on (reconnect_output in hyprland.lua; black for ~2s, so
+#    only then). Bars wrong: rebuild them as above, else restart the bar.
 # Bars: Wayle's wayle-bar-<screen> or HyprPanel's bar-0, bar-1… (whichever
 # runs, see ~/.scripts/bar-switch). Wayle follows mirror <-> extend by itself;
 # the HyprPanel-only nudge is skipped for it.
@@ -121,7 +120,6 @@ elif [ "$mode" = extend ]; then
 fi
 
 settle
-sh ~/.scripts/toggleHyprsunset.sh --refresh
 full_redraw
 
 p=$(lasting)

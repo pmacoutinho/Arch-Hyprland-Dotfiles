@@ -2,16 +2,14 @@
 // Blue-light filter applied as a Hyprland screen shader.
 // Unlike hyprsunset (per-output CTM), this also reaches mirrored outputs.
 //
-// A mirror receives the source monitor's already-shaded frame and then runs the
-// screen shader again, so tinting it too would double the effect. TINT_OUTPUT
-// is filled in by ~/.scripts/toggleHyprsunset.sh with the non-mirror monitor IDs.
+// Every screen is tinted, mirrors too: since Hyprland 0.57.1 a mirror gets the
+// source's frame without the shader and runs the shader itself. (Up to 0.57.0
+// it got the tinted frame, so the tint was limited to non-mirrors then; if a
+// mirror ever looks warmer than the laptop, that's back.)
 precision highp float;
-
-#define TINT_OUTPUT true
 
 in vec2 v_texcoord;
 uniform sampler2D tex;
-uniform int wl_output;
 layout(location = 0) out vec4 fragColor;
 
 const float TEMPERATURE = 5000.0; // Kelvin; lower = warmer
@@ -28,5 +26,5 @@ vec3 kelvinToRgb(float k) {
 
 void main() {
     vec4 px = texture(tex, v_texcoord);
-    fragColor = (TINT_OUTPUT) ? vec4(px.rgb * kelvinToRgb(TEMPERATURE), px.a) : px;
+    fragColor = vec4(px.rgb * kelvinToRgb(TEMPERATURE), px.a);
 }
