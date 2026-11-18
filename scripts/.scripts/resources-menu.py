@@ -450,13 +450,15 @@ def size(n):
     return f"{n / 2 ** 40:.2f} TiB" if n >= 1000 * 2 ** 30 else f"{n / 2 ** 30:.1f} GiB"
 
 
-def speed(bps):
-    """Bytes/s as Wayle's dashboard shows it (KB/s, MB/s)."""
-    if bps >= 1e9:
-        return f"{bps / 1e9:.1f} GB/s"
-    if bps >= 1e6:
-        return f"{bps / 1e6:.1f} MB/s"
-    return f"{bps / 1e3:.1f} KB/s"
+def speed(bytes_per_s):
+    """In Mbps (megabits per second, as connection speeds are given):
+    two decimals below 1, one below 100."""
+    mbps = bytes_per_s * 8 / 1e6
+    if mbps >= 100:
+        return f"{mbps:.0f} Mbps"
+    if mbps >= 1:
+        return f"{mbps:.1f} Mbps"
+    return f"{mbps:.2f} Mbps"
 
 
 # --- bar button position (as calendar-menu.py) -----------------------------------
@@ -940,7 +942,7 @@ class Menu(Gtk.Window):
                 up.set_text(speed(max(0, new[1] - old[1]) / elapsed))
             if kind == "wifi":
                 mbps = wifi_bitrate(dev)
-                rate.set_text(f"link {mbps:.0f} Mb/s" if mbps else "")
+                rate.set_text(f"link {mbps:.0f} Mbps" if mbps else "")
         return True
 
     def update_cpu_extra(self, times, old_times):
