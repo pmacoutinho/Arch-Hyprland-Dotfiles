@@ -410,17 +410,24 @@ class NvidiaReader:
     def follow(self, proc):
         for line in proc.stdout:
             fields = [f.strip() for f in line.split(",")]
-            if len(fields) == 5:
+            if len(fields) == 5 and proc is self.proc:  # (not one being stopped)
                 self.reading = fields
 
     def stop(self):
+        """Without waiting: nvidia-smi takes up to a second to quit, which
+        held the menu open that long on closing; it's reaped in a thread."""
         if self.proc:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-            self.proc = None
+            proc, self.proc = self.proc, None
+            proc.terminate()
+            threading.Thread(target=self.reap, args=(proc,), daemon=True).start()
+
+    @staticmethod
+    def reap(proc):
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 def wifi_bitrate(dev):
@@ -697,11 +704,12 @@ class Menu(Gtk.Window):
         if self.ticker:
             GLib.source_remove(self.ticker)
             self.ticker = None
+        # Hidden first: the rest can't hold it up.
+        self.hide()
         if self.nvidia:
             self.nvidia.stop()
         # CPU and RAM open folded again next time.
         self.expanded = {key: False for key in self.expanded}
-        self.hide()
         return True
 
     def on_key(self, _widget, event):
