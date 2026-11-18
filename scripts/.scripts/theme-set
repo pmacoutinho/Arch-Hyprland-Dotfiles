@@ -23,9 +23,11 @@ and `background` to its wallpaper; apps read their colours through these:
     Obsidian          a CSS snippet in each vault, from obsidian.css
     Claude Code       custom theme ~/.claude/themes/desktop.json, from claude.json
     Firefox nightTab  the profile's userContent.css, from nighttab.css (next start)
+    Beeper            its custom.css, mapped from its own colours (live: ~/.scripts/beeper)
     HyprPanel         theme colours merged into ~/.config/hyprpanel/config.json
 Running apps are told to reload; everything else picks it up on next start.
 """
+import colorsys
 import fcntl
 import hashlib
 import json
@@ -715,6 +717,146 @@ def apply_claude(theme):
     os.replace(tmp, CLAUDE_THEME)
 
 
+BEEPER = os.path.join(HOME, ".config/BeeperTexts")
+BEEPER_COLOURS = os.path.join(HOME, ".cache/theme-set/beeper-colours.json")
+# Beeper's blocks of colour variables (its light and dark looks).
+BEEPER_BLOCKS = (":root", ":root[data-theme=light]", ":root[data-theme=dark]",
+                 ":root:not([data-theme=light])", "@media(prefers-color-scheme:dark){:root")
+
+
+def beeper_colours():
+    """Beeper's colour variables with a plain colour value: [block, {name:
+    value}] in its stylesheet's order (which decides between blocks), read
+    from the running Beeper's stylesheet (its AppImage is mounted while it
+    runs) and kept in ~/.cache for when it isn't."""
+    import glob
+    import struct
+    found = []
+    for asar in glob.glob("/tmp/.mount_Beeper*/resources/app.asar"):
+        try:
+            with open(asar, "rb") as f:
+                f.read(4)
+                header_size = struct.unpack("<I", f.read(4))[0]
+                f.read(4)
+                header = json.loads(f.read(struct.unpack("<I", f.read(4))[0]))
+                renderer = header["files"]["build"]["files"]["renderer"]["files"]
+                for name, entry in renderer.items():
+                    if re.fullmatch(r"App-[\w-]+\.css", name):
+                        f.seek(8 + header_size + int(entry["offset"]))
+                        css = f.read(entry["size"]).decode()
+                        break
+                else:
+                    continue
+        except (OSError, ValueError, KeyError, struct.error):
+            continue
+        for m in re.finditer(r"(@media\(prefers-color-scheme:dark\)\{)?(:root[^{,]*)\{([^{}]*)\}", css):
+            block = (m.group(1) or "") + m.group(2)
+            if block in BEEPER_BLOCKS:
+                colours = {name: value.strip()
+                           for name, value in re.findall(r"(--[\w-]+):\s*([^;}]+)", m.group(3))
+                           if beeper_rgba(value.strip())}
+                if colours:
+                    found.append([block, colours])
+        break
+    if found:
+        os.makedirs(os.path.dirname(BEEPER_COLOURS), exist_ok=True)
+        with open(BEEPER_COLOURS, "w") as f:
+            json.dump(found, f)
+        return found
+    try:
+        with open(BEEPER_COLOURS) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def beeper_rgba(value):
+    """(r, g, b, alpha 0-1) of a plain CSS colour, else None."""
+    value = {"white": "#ffffff", "black": "#000000"}.get(value, value)
+    m = re.fullmatch(r"#([0-9a-fA-F]{3,8})", value)
+    if m:
+        h = m.group(1)
+        if len(h) in (3, 4):
+            h = "".join(c * 2 for c in h)
+        if len(h) not in (6, 8):
+            return None
+        return (*(int(h[i:i + 2], 16) for i in (0, 2, 4)), int(h[6:8], 16) / 255 if len(h) == 8 else 1)
+    m = re.fullmatch(r"rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)", value)
+    if m:
+        return (*(int(m.group(i)) for i in (1, 2, 3)), float(m.group(4) or 1))
+    return None
+
+
+def apply_beeper(theme):
+    """Beeper (its Settings → Appearance → Custom CSS file) in the theme's
+    colours. Its own colours are mapped: greys (black to white) onto the
+    theme's background to foreground (the other way round for a light
+    theme), keeping how light each is and its transparency; blues (its
+    accent) onto the theme's accent; other hues (reds, greens…) stay. Text on
+    the accent gets whichever of background and foreground reads better.
+    Beeper only reads the file when its window loads, so a running Beeper is
+    given it by ~/.scripts/beeper (nothing else changes). Its own theme
+    setting should be System (light or dark as the theme)."""
+    if not os.path.isdir(BEEPER):
+        return
+    c = load_toml(os.path.join(THEMES, theme, "colors.toml"))
+    try:
+        bg, fg, accent = c["background"], c["foreground"], c["accent"]
+    except KeyError:
+        return
+    light = c.get("mode", "dark") == "light"
+    white, black = (bg, fg) if light else (fg, bg)
+
+    def see_through(colour, alpha):
+        return colour if alpha >= 1 else f"color-mix(in srgb, {colour} {alpha * 100:.1f}%, transparent)"
+
+    def mapped(value):
+        r, g, b, alpha = beeper_rgba(value)
+        if alpha == 0:
+            return None
+        hi, lo = max(r, g, b), min(r, g, b)
+        if hi - lo <= 26:  # grey
+            lightness = (r + g + b) / 3 / 255 * 100
+            return see_through(f"color-mix(in srgb, {white} {lightness:.1f}%, {black})", alpha)
+        hue = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)[0] * 360
+        if 195 <= hue <= 250 and hi - lo > 60:  # blue: the accent
+            colour = accent if hi > 120 else f"color-mix(in srgb, {accent} 45%, {black})"
+            return see_through(colour, alpha)
+        return None
+
+    blocks = []
+    for block, colours in beeper_colours():
+        lines = [f"  {name}: {new};" for name, value in colours.items() if (new := mapped(value))]
+        if block == ":root" and "--palette-base-white" in colours:
+            lines += [f"  --main-light-text-on-main: {max((bg, fg), key=lambda t: contrast(t, accent))};",
+                      f"  --main-dark-text-on-main: {max((bg, fg), key=lambda t: contrast(t, accent))};",
+                      f"  --theme-main-alpha-dark-1000: {readable(accent, bg, fg)};"]
+        if lines:
+            body = "\n".join(lines)
+            blocks.append(f"{block} {{\n{body}\n}}" + ("}" if block.startswith("@media") else ""))
+    if not blocks:
+        return
+    css = (f"/* Written by theme-set ({theme}): Beeper in the theme's colours.\n"
+           f"   Changes here are overwritten at the next theme switch. */\n" + "\n".join(blocks) + "\n")
+    path = os.path.join(BEEPER, "custom.css")
+    try:
+        with open(path) as f:
+            if f.read() == css:
+                return
+    except OSError:
+        pass
+    with open(path, "w") as f:
+        f.write(css)
+    reload_beeper()
+
+
+def reload_beeper():
+    """Have a running Beeper take the new custom.css in place, as its own
+    "Reload custom CSS" does (~/.scripts/beeper: Beeper started from it). A
+    Beeper started otherwise gets it at its next start."""
+    run(os.path.join(HOME, ".scripts/beeper"), "--reload-css")
+
+
 FIREFOX = os.path.join(HOME, ".mozilla/firefox")
 NIGHTTAB_ID = "{47bf427e-c83d-457d-9b3d-3db4118574bd}"
 
@@ -885,6 +1027,7 @@ def apply(theme):
     apply_obsidian(theme)
     apply_claude(theme)
     apply_firefox(theme)
+    apply_beeper(theme)
     apply_icons(theme)
     apply_nautilus()
     apply_starship()

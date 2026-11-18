@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""Start Beeper so its colours can change while it runs (theme-set).
+
+Beeper reads its custom CSS (~/.config/BeeperTexts/custom.css, written by
+theme-set) only when its window loads, and reloading the window closes the
+open chat. So Beeper is started from here with Chromium's DevTools pipe
+(--remote-debugging-pipe: file descriptors only this process holds, no network
+port), and this process stays with it, listening on a socket only you can use
+($XDG_RUNTIME_DIR/beeper-css.sock). `beeper --reload-css` (theme-set runs it)
+puts the file's current text into each Beeper window's custom-CSS style, as
+Beeper's own "Reload custom CSS" command does: nothing else changes.
+
+    beeper [ARGS]       start Beeper (or show it, if it's running)
+    beeper --reload-css apply custom.css to the running Beeper
+
+The menu entry (~/.local/share/applications/Beeper.desktop) should run this.
+Beeper quits when the pipe closes, so this process lives as long as it does.
+A Beeper that restarts itself (an update, some settings) runs without the
+pipe until it's next started from here: the CSS then applies at its start.
+"""
+import fcntl
+import json
+import os
+import selectors
+import signal
+import socket
+import subprocess
+import sys
+
+APP = os.path.expanduser("~/Applications/Beeper.AppImage")
+CSS = os.path.expanduser("~/.config/BeeperTexts/custom.css")
+SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "beeper-css.sock")
+
+# Sets the custom-CSS style element's text (made if missing), in one window.
+INJECT = """(css => {
+    let style = document.getElementById("custom-css");
+    if (!style) {
+        style = document.createElement("style");
+        style.id = "custom-css";
+        document.head.appendChild(style);
+    }
+    style.textContent = css;
+    return true;
+})(%s)"""
+
+
+def beeper_running():
+    """Its main process: Chromium rewrites the command line as one string,
+    the helpers' with a --type= flag."""
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    exe = f.read().split(b"\0")[0]
+            except OSError:
+                continue
+            if b"/beepertexts" in exe and b"--type=" not in exe:
+                return True
+    return False
+
+
+def reload_css():
+    """Ask the launcher to apply custom.css; quietly nothing if Beeper wasn't
+    started by it."""
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(5)
+            s.connect(SOCKET)
+            s.sendall(b"reload-css\n")
+            return s.recv(64).strip() == b"ok"
+    except OSError:
+        return False
+
+
+class DevTools:
+    """Chromium's DevTools protocol over the pipe: JSON messages ending in a
+    NUL byte, ours to its fd 3, its own from its fd 4."""
+
+    def __init__(self, to_beeper, from_beeper):
+        self.out, self.inp = to_beeper, from_beeper
+        self.buffer = b""
+        self.next_id = 0
+
+    def call(self, method, session=None, **params):
+        self.next_id += 1
+        message = {"id": self.next_id, "method": method, "params": params}
+        if session:
+            message["sessionId"] = session
+        os.write(self.out, json.dumps(message).encode() + b"\0")
+        while True:  # events in between are skipped
+            while b"\0" not in self.buffer:
+                chunk = os.read(self.inp, 65536)
+                if not chunk:
+                    raise OSError("Beeper closed the pipe")
+                self.buffer += chunk
+            raw, self.buffer = self.buffer.split(b"\0", 1)
+            reply = json.loads(raw)
+            if reply.get("id") == self.next_id:
+                if "error" in reply:
+                    raise OSError(reply["error"].get("message", "error"))
+                return reply.get("result", {})
+
+    def apply_css(self, css):
+        for target in self.call("Target.getTargets")["targetInfos"]:
+            if target["type"] != "page":
+                continue
+            session = self.call("Target.attachToTarget", targetId=target["targetId"],
+                                flatten=True)["sessionId"]
+            try:
+                result = self.call("Runtime.evaluate", session, expression=INJECT % json.dumps(css))
+                if "exceptionDetails" in result:
+                    raise OSError(result["exceptionDetails"].get("text", "script failed"))
+            finally:
+                self.call("Target.detachFromTarget", sessionId=session)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--reload-css"]:
+        sys.exit(0 if reload_css() else 1)
+    if beeper_running():  # it shows its window (and keeps its own launcher)
+        os.execv(APP, [APP, *args])
+
+    # (Kept clear of 3 and 4, where they go in Beeper.)
+    def moved(fd):
+        new = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 10)
+        os.close(fd)
+        return new
+
+    to_beeper_r, to_beeper_w, from_beeper_r, from_beeper_w = (
+        moved(fd) for fd in (*os.pipe(), *os.pipe()))
+
+    def child_fds():
+        os.dup2(to_beeper_r, 3)
+        os.dup2(from_beeper_w, 4)
+
+    beeper = subprocess.Popen([APP, "--remote-debugging-pipe", *args], preexec_fn=child_fds,
+                              pass_fds=(3, 4), stdin=subprocess.DEVNULL, start_new_session=True)
+    os.close(to_beeper_r)
+    os.close(from_beeper_w)
+    devtools = DevTools(to_beeper_w, from_beeper_r)
+
+    try:
+        os.unlink(SOCKET)
+    except OSError:
+        pass
+    old_umask = os.umask(0o077)
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(SOCKET)
+    os.umask(old_umask)
+    server.listen()
+
+    # Beeper quits when the pipe closes, so this stays until it does; a
+    # signal still removes the socket on the way out.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: sys.exit(0))
+    events = selectors.DefaultSelector()
+    events.register(server, selectors.EVENT_READ)
+    try:
+        while beeper.poll() is None:
+            if not events.select(timeout=2):
+                continue
+            client, _ = server.accept()
+            with client:
+                client.settimeout(2)
+                try:
+                    if client.recv(64).strip() == b"reload-css":
+                        with open(CSS) as f:
+                            devtools.apply_css(f.read())
+                        client.sendall(b"ok\n")
+                except (OSError, ValueError):
+                    try:
+                        client.sendall(b"failed\n")
+                    except OSError:
+                        pass
+    finally:
+        server.close()
+        try:
+            os.unlink(SOCKET)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    main()
