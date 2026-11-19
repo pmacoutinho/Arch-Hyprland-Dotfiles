@@ -455,10 +455,12 @@ hl.bind(mainMod .. " + G", hl.dsp.layout("swapsplit")) -- dwindle
 hl.bind(mainMod .. " + F", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("/home/pedro/.local/bin/hyprlock-logged"))
 hl.bind(mainMod .. " + S", hl.dsp.exec_cmd("spotify-launcher"))
-hl.bind("PRINT",           hl.dsp.exec_cmd("sh ~/.scripts/screenshot.sh -m region -o ~/Pictures/Screenshots/"))
+-- Screenshots leave out night mode's tint by themselves (since Hyprland 0.57.1
+-- a capture gets the frame before the screen shader), so no wrapper is needed.
+hl.bind("PRINT",           hl.dsp.exec_cmd("hyprshot -m region -o ~/Pictures/Screenshots/"))
 -- NOTE: the .conf had `bind = $shiftMod, PRINT, ...` but $shiftMod was never defined,
 -- so that bind never worked. Assuming SHIFT was intended.
-hl.bind("SHIFT + PRINT",   hl.dsp.exec_cmd("sh ~/.scripts/screenshot.sh -m region -o ~/Pictures/Screenshots/"))
+hl.bind("SHIFT + PRINT",   hl.dsp.exec_cmd("hyprshot -m region -o ~/Pictures/Screenshots/"))
 -- locked: works on the lock screen too (see the "keyboard" layer rule)
 hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("sh ~/.scripts/onScreenKeyboard.sh"), { locked = true })
 hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("gromit-mpx"))
