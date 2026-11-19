@@ -8,6 +8,17 @@
 # clock, no VPN/network modules. GVfs starts a fresh helper when needed.
 pkill -x gvfsd-http
 
+# Sound: the cards are there, but WirePlumber has none of them on (only its
+# "Dummy Output"). Seen when the desktop restarted around a sleep: it tried
+# the cards while they were away and switched them off for good. A restart
+# makes it look again. (In the background: the VPN part below waits.)
+(
+    sleep 3
+    grep -q '^ *[0-9]' /proc/asound/cards 2>/dev/null || exit 0
+    pactl list short sinks 2>/dev/null | grep -qv auto_null && exit 0
+    systemctl --user restart wireplumber
+) &
+
 # Proton VPN goes down on suspend. Its kill switch / leak protection then sends
 # every DNS lookup to ::1 (pvpnksintrf0, ipv6leakintrf0…), so nothing resolves
 # until it reconnects — and its app often doesn't (seen: 4 min, nothing), the
