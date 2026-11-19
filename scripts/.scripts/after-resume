@@ -8,15 +8,30 @@
 # clock, no VPN/network modules. GVfs starts a fresh helper when needed.
 pkill -x gvfsd-http
 
-# Sound: the cards are there, but WirePlumber has none of them on (only its
-# "Dummy Output"). Seen when the desktop restarted around a sleep: it tried
-# the cards while they were away and switched them off for good. A restart
-# makes it look again. (In the background: the VPN part below waits.)
+# Sound, then the bar (in the background: the VPN part below waits).
 (
     sleep 3
-    grep -q '^ *[0-9]' /proc/asound/cards 2>/dev/null || exit 0
-    pactl list short sinks 2>/dev/null | grep -qv auto_null && exit 0
-    systemctl --user restart wireplumber
+    # Sound: the cards are there, but WirePlumber has none of them on (only
+    # its "Dummy Output"). Seen when the desktop restarted around a sleep: it
+    # tried the cards while they were away and switched them off for good. A
+    # restart makes it look again.
+    if grep -q '^ *[0-9]' /proc/asound/cards 2>/dev/null &&
+        ! pactl list short sinks 2>/dev/null | grep -qv auto_null; then
+        systemctl --user restart wireplumber
+        sleep 2
+    fi
+    # The Wayle bar loses some of its drawn icons and letters across a sleep
+    # (NVIDIA: blank VPN/Bluetooth/volume icons, even with GSK_RENDERER=ngl,
+    # see hyprland.lua), and only a restart draws them again. After the sound
+    # fix, so it starts with the right audio device. Only if it's the running
+    # bar (~/.scripts/bar-switch); a restart that hangs leaves it stopped, so
+    # it's started again then.
+    if pidof wayle >/dev/null; then
+        timeout 20 wayle panel restart >/dev/null 2>&1
+        sleep 2
+        wayle panel status 2>/dev/null | grep -q 'is running' ||
+            wayle panel start >/dev/null 2>&1
+    fi
 ) &
 
 # Proton VPN goes down on suspend. Its kill switch / leak protection then sends
@@ -32,8 +47,17 @@ proton_up() {
     nmcli -t -f NAME,TYPE connection show --active | grep -q '^ProtonVPN .*:vpn$'
 }
 
-nm-online -q -t 60 || exit 0
-sleep 8  # give a running Proton app the chance to reconnect by itself
+# Wait for a real link: wired or Wi-Fi connected again (a fresh DHCP lease,
+# ~9 s on waking). nm-online alone returns at once, with NetworkManager still
+# showing its state from before the sleep. No extra wait for the Proton app
+# to reconnect by itself: it doesn't (seen: 4 min, nothing), and that wait
+# was 8 s more without internet.
+link_up() { nmcli -t -f TYPE,STATE device 2>/dev/null | grep -qE '^(ethernet|wifi):connected$'; }
+for _ in $(seq 120); do
+    link_up && break
+    sleep 0.5
+done
+link_up || exit 0
 if ! proton_up && blocked_dns; then
     choice=$(awk '{print $1; exit}' "${XDG_RUNTIME_DIR:-/tmp}/vpn-proton-choice" 2>/dev/null)
     # (vpn-proton-connect.sh closes the Proton app first.)

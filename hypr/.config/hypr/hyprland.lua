@@ -225,7 +225,8 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 
 -- GTK 4 apps (the Wayle bar, Nautilus…) draw with OpenGL, not GTK's default
 -- Vulkan: on this NVIDIA card, Vulkan apps lost their cached letters and icons
--- after a suspend (blanks in the bar until it was restarted).
+-- after a suspend (blanks in the bar until it was restarted). OpenGL lessens
+-- it but not always: ~/.scripts/after-resume also restarts the bar.
 hl.env("GSK_RENDERER", "ngl")
 
 
