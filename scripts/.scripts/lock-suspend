@@ -3,20 +3,26 @@
 # button, config.toml: dropdown-lock-command), so waking up shows hyprlock.
 # Only this button locks: hypridle.conf doesn't lock on every suspend (lid).
 #
-# Seamless: the screens go off first, so the lock screen is never seen before
-# sleeping, only on waking (hypridle's after_sleep_cmd turns them back on).
-# Then hypridle starts hyprlock on lock-session (lock_cmd). Hyprland confirms
-# the lock once hyprlock is in place, and hypridle then touches
-# $XDG_RUNTIME_DIR/session-locked (on_lock_cmd): suspend at that moment.
+# hypridle starts hyprlock on lock-session (lock_cmd). Hyprland confirms the
+# lock once hyprlock is in place, and hypridle then touches
+# $XDG_RUNTIME_DIR/session-locked (on_lock_cmd): suspend at that moment, so
+# the lock screen shows for about half a second before the screens go off.
 # Fallbacks: hyprlock not running after 5 s, or running but no confirmation
-# after 1.5 s more: suspend anyway (while locking, Hyprland shows no desktop,
-# only black until hyprlock draws). If the suspend fails, the screens come
-# back on.
+# after 1.5 s more: suspend anyway.
+#
+# The screens are NOT turned off before locking any more. That was done to
+# hide the lock screen until waking, but on 2026-11-19 Hyprland crashed right
+# then: the screens going off (DPMS) made it rescan the displays while hyprlock
+# was putting its lock screen on them (NVIDIA, HDMI mirrored). Suspending
+# turns them off anyway.
+#
+# And no sleep without Hyprland: if it died while locking, the session is
+# restarting it, and suspending in the middle of that left only the login
+# screen on waking (the new Hyprland couldn't take the display).
 stamp="${XDG_RUNTIME_DIR:-/tmp}/session-locked"
 start="${XDG_RUNTIME_DIR:-/tmp}/lock-suspend.start"
-dpms() { hyprctl eval "hl.dispatch(hl.dsp.dpms({ action = \"$1\" }))" >/dev/null 2>&1; }
+hyprland_alive() { hyprctl -j version >/dev/null 2>&1; }
 
-dpms off
 : > "$start"
 loginctl lock-session
 
@@ -31,4 +37,9 @@ while ! [ "$stamp" -nt "$start" ] && [ $i -lt 30 ]; do
     i=$((i + 1))
 done
 rm -f "$start"
-systemctl suspend || dpms on
+
+if ! hyprland_alive; then
+    logger -t lock-suspend "Hyprland is gone (crashed while locking?): not suspending"
+    exit 1
+fi
+systemctl suspend
