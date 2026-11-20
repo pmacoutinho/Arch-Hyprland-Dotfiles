@@ -66,13 +66,18 @@ fix_screens() {
     # (NVIDIA: blank VPN/Bluetooth/volume icons, even with GSK_RENDERER=ngl,
     # see hyprland.lua), and only a restart draws them again. After the sound
     # fix, so it starts with the right audio device. Only if it's the running
-    # bar (~/.scripts/bar-switch); a restart that hangs leaves it stopped, so
-    # it's started again then.
-    if pidof wayle >/dev/null; then
+    # bar (~/.scripts/bar-switch). The old one can hang while stopping (seen
+    # after a wake: it gave up its services but stayed, a second bar on screen
+    # with its last popup frozen black), so it's ended for sure; and if no
+    # Wayle is left, one is started.
+    if old=$(pidof wayle); then
         timeout 20 wayle panel restart >/dev/null 2>&1
+        sleep 3
+        for p in $old; do kill "$p" 2>/dev/null; done
         sleep 2
-        wayle panel status 2>/dev/null | grep -q 'is running' ||
-            wayle panel start >/dev/null 2>&1
+        for p in $old; do kill -9 "$p" 2>/dev/null; done
+        sleep 1
+        pidof wayle >/dev/null || wayle panel start >/dev/null 2>&1
     fi
 ) &
 
