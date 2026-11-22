@@ -5,10 +5,10 @@
 #
 # hypridle starts hyprlock on lock-session (lock_cmd). Hyprland confirms the
 # lock once hyprlock is in place, and hypridle then touches
-# $XDG_RUNTIME_DIR/session-locked (on_lock_cmd): suspend at that moment, so
-# the lock screen shows for about half a second before the screens go off.
-# Fallbacks: hyprlock not running after 5 s, or running but no confirmation
-# after 1.5 s more: suspend anyway.
+# $XDG_RUNTIME_DIR/session-locked (on_lock_cmd). Then 1.5 s more for hyprlock
+# to fade in (see below), and suspend: the lock screen shows for about two
+# seconds before the screens go off. Fallbacks: hyprlock not running after
+# 5 s, or running but no confirmation after 1.5 s more: suspend anyway.
 #
 # The screens are NOT turned off before locking any more. That was done to
 # hide the lock screen until waking, but on 2026-11-19 Hyprland crashed right
@@ -37,6 +37,12 @@ while ! [ "$stamp" -nt "$start" ] && [ $i -lt 30 ]; do
     i=$((i + 1))
 done
 rm -f "$start"
+
+# Let hyprlock finish fading in first. Suspending the moment the lock was
+# confirmed froze it halfway (2026-11-21: 33 frames, ~0.5 s after it started),
+# and on waking it stayed see-through and didn't draw the typed password for
+# ~40 s, though it got the keys.
+pidof hyprlock >/dev/null && sleep 1.5
 
 if ! hyprland_alive; then
     logger -t lock-suspend "Hyprland is gone (crashed while locking?): not suspending"
