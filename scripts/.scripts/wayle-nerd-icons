@@ -14,7 +14,8 @@ Each icon is a 1 em square centred on its glyph, so at an icon size of N px
 it is as big as the glyph in N px text (HyprPanel: mostly 16 px).
 
 Also text drawn as icons (TEXT_ICONS), for labels Wayle has built in: the
-dashboard's "Night Mode" tile (styles/index.scss, ~/.scripts/night-mode-tile).
+dashboard's "Night Mode" and "Color Picker" tiles (styles/index.scss,
+~/.scripts/night-mode-tile, ~/.scripts/color-picker-tile).
 Written as Wayle's tile labels render (Noto Sans SemiBold 13 px, slight
 hinting, the baseline on a pixel), so drawn at 1:1 they look the same.
 """
@@ -44,6 +45,7 @@ ICON_DIR = os.path.expanduser("~/.local/share/wayle/icons/hicolor/scalable/actio
 # index.scss (printed when written).
 TEXT_ICONS = {
     "text-night-mode": ("Night Mode", "Noto Sans SemiBold 13px"),
+    "text-color-picker": ("Color Picker", "Noto Sans SemiBold 13px"),
 }
 
 # Bar buttons (names used in config.toml).
@@ -59,6 +61,8 @@ MODULE_ICONS = {
     "battery-charging": 0xF0084, "battery-alert": 0xF0083,
     "calendar": 0xF0E17,
     "lock": 0xF023, "lock-open": 0xF09C,
+    # Not on the bar: the dashboard's Color Picker tile (styles/index.scss).
+    "eyedropper": 0xF020A,
 }
 
 # Applications, first match wins: (window class, case-insensitive substring,

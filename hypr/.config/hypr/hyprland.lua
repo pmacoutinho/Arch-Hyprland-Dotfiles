@@ -205,6 +205,8 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("~/.scripts/resources-menu.py --daemon")
     -- The dashboard's Night Mode tile (Wayle's Idle Inhibit one, restyled)
     hl.exec_cmd("~/.scripts/night-mode-tile")
+    -- The dashboard's Color Picker tile (Wayle's Power Saver one, restyled)
+    hl.exec_cmd("~/.scripts/color-picker-tile")
     -- Low battery warnings at 20, 15, 10 and 5 % (Wayle has none)
     hl.exec_cmd("~/.scripts/battery-warn")
     -- Volume/brightness indicator, vertical like HyprPanel's (Wayle's is off).

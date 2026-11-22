@@ -332,3 +332,35 @@ $night-tile: ".dashboard-dropdown button.quick-action:nth-child(5)";
 
   > image { opacity: 0; }
 }
+
+// Dashboard dropdown: a Color Picker tile where Wayle has Power Saver (the
+// sixth), as HyprPanel's dashboard had. ~/.scripts/color-picker-tile puts the
+// power profile straight back when it's clicked and starts hyprpicker. Drawn
+// as the Night Mode tile above: the label "Color Picker" (76.1279 px wide, so
+// 14.5 px in to be centred like it), an eyedropper (HyprPanel's Nerd Font one)
+// for the icon, and never shown switched on.
+$picker-tile: ".dashboard-dropdown button.quick-action:nth-child(6)";
+#{$picker-tile},
+#{$picker-tile}:hover,
+#{$picker-tile}:active,
+#{$picker-tile}.active {
+  background-image: -gtk-icontheme("cm-text-color-picker-symbolic");
+  background-repeat: no-repeat;
+  background-size: 76.1279px 76.1279px;
+  background-position: 14.5px 47.5px;
+  color: var(--fg-subtle);
+}
+#{$picker-tile} .quick-action-label {
+  color: transparent;
+}
+#{$picker-tile} .quick-action-icon,
+#{$picker-tile}.active .quick-action-icon {
+  background-color: var(--bg-overlay);
+  background-image: -gtk-icontheme("cm-nf-eyedropper-symbolic");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--icon-lg);
+  color: var(--fg-muted);
+
+  > image { opacity: 0; }
+}
