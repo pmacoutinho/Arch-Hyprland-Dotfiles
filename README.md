@@ -130,6 +130,8 @@ The bar has three VPN buttons, one shown at a time (`wayle/.config/wayle/config.
 
 Left click connects/disconnects; right click opens the VPN menu (`scripts/.scripts/vpn-proton-menu.py`).
 
+When the network drops under a VPN (a sleep, or the Wi-Fi gone for a moment), `scripts/.scripts/vpn-recover` reconnects it once Wi-Fi or wired is back: Proton VPN if its kill switch was left on (it blocks DNS until Proton reconnects, which its app doesn't do by itself), and an OpenVPN 3 session still retrying. It's run by `after-resume` and by `vpn-recover-watch`, started by `hyprland.lua`.
+
 ## Acknowledgments
 
 - [Hyprland](https://hyprland.org/)

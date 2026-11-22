@@ -207,6 +207,8 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("~/.scripts/night-mode-tile")
     -- The dashboard's Color Picker tile (Wayle's Power Saver one, restyled)
     hl.exec_cmd("~/.scripts/color-picker-tile")
+    -- VPNs back after a network drop (Proton's kill switch leaves no DNS)
+    hl.exec_cmd("~/.scripts/vpn-recover-watch")
     -- Low battery warnings at 20, 15, 10 and 5 % (Wayle has none)
     hl.exec_cmd("~/.scripts/battery-warn")
     -- Volume/brightness indicator, vertical like HyprPanel's (Wayle's is off).

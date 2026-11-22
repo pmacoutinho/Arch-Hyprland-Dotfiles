@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Run ~/.scripts/vpn-recover whenever Wi-Fi or wired connects again.
+
+A network drop takes the VPNs down with it (NetworkManager ends a VPN whose
+link failed), even when the link is back a second later: seen 2026-11-22,
+the router dropped the Wi-Fi, and Proton's kill switch left no DNS until it
+was reconnected by hand. vpn-recover reconnects only what was dropped that
+way, so a connection coming up is all this watches for (NetworkManager's
+device StateChanged signal, to "activated").
+
+Autostarted by hyprland.lua; one at a time; ends with Hyprland.
+"""
+import os
+import signal
+import socket
+import subprocess
+import threading
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+PIDFILE = os.path.join(RUN, "vpn-recover-watch.pid")
+RECOVER = os.path.expanduser("~/.scripts/vpn-recover")
+NM = "org.freedesktop.NetworkManager"
+ACTIVATED = 100
+LINKS = {1, 2}  # DeviceType: ethernet, wifi
+
+
+def on_state(bus, _sender, path, _iface, _signal, params, _data):
+    new, _old, _reason = params.unpack()
+    if new != ACTIVATED:
+        return
+    try:
+        kind = bus.call_sync(NM, path, "org.freedesktop.DBus.Properties", "Get",
+                             GLib.Variant("(ss)", (NM + ".Device", "DeviceType")),
+                             GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 2000,
+                             None).unpack()[0]
+    except GLib.Error:
+        return
+    if kind in LINKS:
+        subprocess.Popen([RECOVER], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def hyprland_events(loop):
+    """Quit when Hyprland is gone (its event socket closes)."""
+    path = os.path.join(RUN, "hypr", os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
+                        ".socket2.sock")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(path)
+            while s.recv(65536):
+                pass
+    except OSError:
+        pass
+    GLib.idle_add(loop.quit)
+
+
+def main():
+    # One watcher: replace an older one.
+    try:
+        with open(PIDFILE) as f:
+            old = int(f.read())
+        with open(f"/proc/{old}/cmdline", "rb") as f:
+            if b"vpn-recover-watch" in f.read():
+                os.kill(old, signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    loop = GLib.MainLoop()
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    bus.signal_subscribe(NM, NM + ".Device", "StateChanged", None, None,
+                         Gio.DBusSignalFlags.NONE, on_state, None)
+    threading.Thread(target=hyprland_events, args=(loop,), daemon=True).start()
+    signal.signal(signal.SIGTERM, lambda *_: GLib.idle_add(loop.quit))
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -81,43 +81,6 @@ fix_screens() {
     fi
 ) &
 
-# Proton VPN goes down on suspend. Its kill switch / leak protection then sends
-# every DNS lookup to ::1 (pvpnksintrf0, ipv6leakintrf0…), so nothing resolves
-# until it reconnects — and its app often doesn't (seen: 4 min, nothing), the
-# CLI never does. Without DNS the IT VPN can't find its server either, and
-# gives up after a few minutes. So if we woke up in that state, reconnect
-# Proton (same choice as last time: pt, fastest or a server).
-blocked_dns() {
-    resolvectl dns 2>/dev/null | awk '$3 ~ /^\((pvpn|ipv6leak)/ && / ::1( |$)/ {found = 1} END {exit !found}'
-}
-proton_up() {
-    nmcli -t -f NAME,TYPE connection show --active | grep -q '^ProtonVPN .*:vpn$'
-}
-
-# Wait for a real link: wired or Wi-Fi connected again (a fresh DHCP lease,
-# ~9 s on waking). nm-online alone returns at once, with NetworkManager still
-# showing its state from before the sleep. No extra wait for the Proton app
-# to reconnect by itself: it doesn't (seen: 4 min, nothing), and that wait
-# was 8 s more without internet.
-link_up() { nmcli -t -f TYPE,STATE device 2>/dev/null | grep -qE '^(ethernet|wifi):connected$'; }
-for _ in $(seq 120); do
-    link_up && break
-    sleep 0.5
-done
-link_up || exit 0
-if ! proton_up && blocked_dns; then
-    choice=$(awk '{print $1; exit}' "${XDG_RUNTIME_DIR:-/tmp}/vpn-proton-choice" 2>/dev/null)
-    # (vpn-proton-connect.sh closes the Proton app first.)
-    ~/.scripts/vpn-notify.sh 'Proton VPN' 'Reconnecting after sleep' \
-        ~/.scripts/vpn-proton-connect.sh "${choice:-pt}"
-fi
-
-# An IT VPN (OpenVPN 3) session still retrying: with DNS back, restart it now
-# instead of waiting for its next attempt (or for it to give up).
-blocked_dns && exit 0
-openvpn3 sessions-list 2>/dev/null | awk '
-    /Path:/ {path = $2}
-    /Status:/ && !/Client connected/ && path {print path; path = ""}' |
-while read -r path; do
-    openvpn3 session-manage --session-path "$path" --restart >/dev/null 2>&1
-done
+# VPNs down with the sleep: reconnect them once the link is back
+# (~/.scripts/vpn-recover, also run whenever Wi-Fi or wired reconnects).
+exec ~/.scripts/vpn-recover
