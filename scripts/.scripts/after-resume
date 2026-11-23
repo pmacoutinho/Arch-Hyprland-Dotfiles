@@ -16,7 +16,28 @@ pkill -x gvfsd-http
 # fixed like that other sleep did: screens off and on (a full mode set), then,
 # if that wasn't enough, the external screens switched off and on again
 # (reconnect_output in hyprland.lua; black for ~2 s).
+#
+# Seen again 2026-11-23 (a dark screen after waking, ended with a hard reboot):
+# both times the HDMI screen was plugged in while the laptop slept (only the
+# laptop panel at the lock), and neither of those fixes was enough. Another
+# sleep was, on 11-19: so as a last resort the laptop goes back to sleep by
+# itself (once in 10 min, not in a loop), to be woken with the power button.
+# Hyprland's log is in RAM, gone with a reboot: what it said is kept in
+# ~/.local/state/hypr-bad-wake/ (without the refused-frame lines).
 HYPR_LOG="${XDG_RUNTIME_DIR:-/tmp}/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log"
+KEEP="${XDG_STATE_HOME:-$HOME/.local/state}/hypr-bad-wake"
+RESLEPT="${XDG_RUNTIME_DIR:-/tmp}/after-resume.reslept"
+keep_log() {
+    mkdir -p "$KEEP"
+    {
+        echo "== $(date -Is) $1; refused frames in the log:" \
+            "$(grep -ac 'failed to commit' "$HYPR_LOG")"
+        hyprctl monitors all 2>&1
+        echo "== hyprland.log, without the refused-frame lines (last 5000):"
+        grep -av 'failed to commit' "$HYPR_LOG" | tail -n 5000
+    } > "$KEEP/$(date +%Y%m%d-%H%M%S)-$1.log" 2>&1
+    ls -1t "$KEEP"/*.log 2>/dev/null | tail -n +11 | xargs -r rm -f
+}
 frames_failing() {
     [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && [ -f "$HYPR_LOG" ] || return 1
     local before after
@@ -31,6 +52,7 @@ dpms() { hyprctl eval "hl.dispatch(hl.dsp.dpms({ action = \"$1\" }))" >/dev/null
 fix_screens() {
     frames_failing || return 0
     logger -t after-resume "screens not updating (frames refused): turning them off and on"
+    keep_log refused
     dpms off
     sleep 1
     dpms on
@@ -43,15 +65,24 @@ fix_screens() {
             hyprctl eval "reconnect_output(\"$out\")" >/dev/null 2>&1
         done
     sleep 3
-    frames_failing &&
+    frames_failing || return 0
+    keep_log still-refused
+    if [ -n "$(find "$RESLEPT" -mmin -10 2>/dev/null)" ]; then
+        logger -t after-resume "still refused, and already slept again: leaving it"
         notify-send --urgency=critical --app-name=Display "Screen not updating" \
             "Hyprland's frames are still refused after waking. Sleeping again usually fixes it."
+        return 0
+    fi
+    logger -t after-resume "still refused: sleeping again (wake with the power button)"
+    touch "$RESLEPT"
+    systemctl suspend
+    return 1  # the rest is done on that next wake
 }
 
 # Screens, sound, then the bar (in the background: the VPN part below waits).
 (
     sleep 2
-    fix_screens
+    fix_screens || exit 0
     sleep 1
     # Sound: the cards are there, but WirePlumber has none of them on (only
     # its "Dummy Output"). Seen when the desktop restarted around a sleep: it
