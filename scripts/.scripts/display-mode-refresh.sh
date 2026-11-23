@@ -81,12 +81,20 @@ lasting() {
 }
 
 # Repaint every screen in full once. After a screen is added or mirrored, the
-# (software, NVIDIA) cursor could stay drawn where it was, a second "mouse"
-# that only went away once something repainted that spot.
+# cursor could stay drawn where it was, a second "mouse" that only went away
+# once something repainted that spot (typing, a window changing; moving the
+# mouse doesn't). Turning damage tracking off alone wasn't enough (still seen
+# 2026-11-23): it only applies to frames drawn, and nothing was being drawn.
+# So, for 0.2 s: software cursors (also clearing any hardware cursor left on
+# a screen) and the cursor moved 1 px and back, so that every screen draws.
 full_redraw() {
-    hyprctl eval 'hl.config({ debug = { damage_tracking = 0 } })' >/dev/null
+    hyprctl eval 'hl.config({ debug = { damage_tracking = 0 }, cursor = { no_hardware_cursors = 1 } })' >/dev/null
     sleep 0.1
-    hyprctl eval 'hl.config({ debug = { damage_tracking = 2 } })' >/dev/null
+    hyprctl eval 'local p = hl.get_cursor_pos()
+        hl.dispatch(hl.dsp.cursor.move({ x = p.x + 1, y = p.y }))
+        hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = p.y }))' >/dev/null
+    sleep 0.1
+    hyprctl eval 'hl.config({ debug = { damage_tracking = 2 }, cursor = { no_hardware_cursors = 2 } })' >/dev/null
 }
 
 # HyprPanel rebuilds all its bars ~0.3s after Hyprland reports a screen
