@@ -101,14 +101,24 @@ fix_screens() {
     # after a wake: it gave up its services but stayed, a second bar on screen
     # with its last popup frozen black), so it's ended for sure; and if no
     # Wayle is left, one is started.
+    #
+    # Only once the screen is unlocked (the bar isn't shown under the lock
+    # anyway). Restarted under it, the lock screen stopped drawing what was
+    # typed: 2026-11-25, the bar went down 5 s after waking and came back
+    # at 16 s, and hyprlock drew nothing from 6 s to 41 s, keys and all (as on
+    # 11-20 and 11-22). One waiting at a time (another sleep, another run).
+    exec 8>"${XDG_RUNTIME_DIR:-/tmp}/after-resume.bar.lock"
+    flock -n 8 || exit 0
+    while pidof hyprlock >/dev/null; do sleep 1; done
     if old=$(pidof wayle); then
-        timeout 20 wayle panel restart >/dev/null 2>&1
+        logger -t after-resume "restarting the bar"
+        timeout 20 wayle panel restart >/dev/null 2>&1 8>&-
         sleep 3
         for p in $old; do kill "$p" 2>/dev/null; done
         sleep 2
         for p in $old; do kill -9 "$p" 2>/dev/null; done
         sleep 1
-        pidof wayle >/dev/null || wayle panel start >/dev/null 2>&1
+        pidof wayle >/dev/null || wayle panel start >/dev/null 2>&1 8>&-
     fi
 ) &
 
